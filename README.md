@@ -9,6 +9,7 @@ This repository contains the core implementation code for the Dataset123 perovsk
 - `123convert2nnunet.py`: Convert perovskite SEM grayscale images and 8-bit grayscale masks into nnUNet v2 standard format, with train/test split and visualization overlays.
 - `123unified_predict.py`: Minimal nnUNet prediction pipeline for single-channel SEM images, producing segmentation masks, border overlays, and LabelMe-format JSON annotations.
 - `trainers/nnUNetTrainerUMambaBotActiveContourDualChannelSemBoost.py`: Custom nnUNet trainer integrating U-Mamba, active contour loss, dual-channel input, and semantic boost with a YOLO-based semantic adapter.
+- `add_yolo_info_features_v2.py`: Generate YOLO auxiliary channels (Channel 1) for nnUNet dual-channel input, supporting YOLOv8/YOLO11 detection models with Gaussian blob and confidence weighting.
 
 ## Dataset
 
