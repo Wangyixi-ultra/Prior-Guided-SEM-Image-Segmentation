@@ -10,6 +10,11 @@ This repository contains the core implementation code for the Dataset123 perovsk
 - `123unified_predict.py`: Minimal nnUNet prediction pipeline for single-channel SEM images, producing segmentation masks, border overlays, and LabelMe-format JSON annotations.
 - `trainers/nnUNetTrainerUMambaBotActiveContourDualChannelSemBoost.py`: Custom nnUNet trainer integrating U-Mamba, active contour loss, dual-channel input, and semantic boost with a YOLO-based semantic adapter.
 - `add_yolo_info_features_v2.py`: Generate YOLO auxiliary channels (Channel 1) for nnUNet dual-channel input, supporting YOLOv8/YOLO11 detection models with Gaussian blob and confidence weighting.
+- `analyze_perovskite.py`: Extract perovskite thin-film morphology descriptors (ABX3 grain size, PbI2 coverage, spatial uniformity, etc.) from SEM images and LabelMe JSON annotations.
+- `update_train_features.py`: Merge the latest SEM morphology features into the training data file `sem_summary_new.xlsx`.
+- `mqs_spearman4.py`: Train and validate a Spearman-4 Morphology Quality Score (MQS) model that links SEM descriptors to device PCE.
+- `analyze_perovskite_sem_test_spearman4.py`: Extract SEM features from independent test sets and score them with the trained Spearman-4 MQS model.
+- `evaluate_spearman4_test.py`: Evaluate the generalisation performance of Spearman-4 MQS against measured PCE on independent test datasets.
 
 ## Dataset
 
@@ -57,6 +62,31 @@ A complete list of all ~255 packages in the `umamba_pero` environment is provide
 3. Train using the custom trainer `nnUNetTrainerUMambaBotActiveContourDualChannelSemBoost`.
 4. Evaluate and compare trainers with `123compare_all_trainers_test.py`.
 5. Run inference with `123unified_predict.py`.
+
+### Spearman-4 MQS pipeline (morphology-to-PCE scoring)
+
+1. Extract training-set morphology features:
+   ```bash
+   python -B analyze_perovskite.py
+   ```
+2. Update the training data with the newly extracted features:
+   ```bash
+   python -B update_train_features.py
+   ```
+3. Train and validate the Spearman-4 MQS model:
+   ```bash
+   python -B mqs_spearman4.py
+   ```
+4. Extract features and score an independent test set:
+   ```bash
+   python -B analyze_perovskite_sem_test_spearman4.py [dataset_name]
+   ```
+5. Evaluate MQS against measured PCE:
+   ```bash
+   python -B evaluate_spearman4_test.py [dataset_name]
+   ```
+
+Supported test dataset names for steps 4 and 5: `anneal`, `zhangxin`, `lcy`, `dll`, `cly`, `bandgap`, `conventional_gap1`, `conventional_gap2`, `sn_pb`.
 
 ## Citation
 
