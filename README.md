@@ -1,6 +1,6 @@
-# Prior-Guided SEM Image Segmentation
+# Prior-Guided SEM Image Segmentation and MQS ranking
 
-This repository contains the core implementation code for the Dataset123 perovskite SEM image segmentation experiments.
+This repository contains the core implementation code for the perovskite SEM image segmentation and MQS ranking experiments.
 
 ## Repository Structure
 
@@ -11,7 +11,7 @@ This repository contains the core implementation code for the Dataset123 perovsk
 - `trainers/nnUNetTrainerUMambaBotActiveContourDualChannelSemBoost.py`: Custom nnUNet trainer integrating U-Mamba, active contour loss, dual-channel input, and semantic boost with a YOLO-based semantic adapter.
 - `add_yolo_info_features_v2.py`: Generate YOLO auxiliary channels (Channel 1) for nnUNet dual-channel input, supporting YOLOv8/YOLO11 detection models with Gaussian blob and confidence weighting.
 - `analyze_perovskite.py`: Extract perovskite thin-film morphology descriptors (ABX3 grain size, PbI2 coverage, spatial uniformity, etc.) from SEM images and LabelMe JSON annotations.
-- `update_train_features.py`: Merge the latest SEM morphology features into the training data file `sem_summary_new.xlsx`.
+- `update_train_features.py`: Merge the latest SEM morphology features into the training data file.
 - `mqs_spearman4.py`: Train and validate a Spearman-4 Morphology Quality Score (MQS) model that links SEM descriptors to device PCE.
 - `analyze_perovskite_sem_test_spearman4.py`: Extract SEM features from independent test sets and score them with the trained Spearman-4 MQS model.
 - `evaluate_spearman4_test.py`: Evaluate the generalisation performance of Spearman-4 MQS against measured PCE on independent test datasets.
@@ -86,7 +86,6 @@ A complete list of all ~255 packages in the `umamba_pero` environment is provide
    python -B evaluate_spearman4_test.py [dataset_name]
    ```
 
-Supported test dataset names for steps 4 and 5: `anneal`, `zhangxin`, `lcy`, `dll`, `cly`, `bandgap`, `conventional_gap1`, `conventional_gap2`, `sn_pb`.
 
 ## Citation
 
