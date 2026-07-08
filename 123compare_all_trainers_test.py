@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-对Dataset123_Perovskite数据集下的所有trainer进行测试集对比评估
-自动发现所有trainer模型，对测试集进行预测并计算指标
+Compare all trainers on the Dataset123_Perovskite test set.
+Automatically discovers all trainer models, runs predictions on the test set, and computes metrics.
 """
 
 import os
@@ -10,7 +10,7 @@ sys.path.insert(0, "/home/chen/seg6/U-Mamba/umamba")
 
 os.environ['DISABLE_FOURIER_INFERENCE'] = 'True'
 os.environ['PYTORCH_ALLOC_CONF'] = 'expandable_segments:True'
-# 解决NumExpr线程限制问题
+# Fix NumExpr thread limit issue
 os.environ['NUMEXPR_MAX_THREADS'] = '16'
 
 import json
@@ -31,7 +31,7 @@ from ultralytics.nn.modules import CBAM
 
 ultralytics.nn.tasks.CBAM = CBAM
 
-# nnunet相关模块
+# nnUNet-related modules
 from nnunetv2.paths import nnUNet_raw, nnUNet_results
 from nnunetv2.inference.predict_from_raw_data import nnUNetPredictor
 from nnunetv2.utilities.find_class_by_name import recursive_find_python_class
@@ -42,7 +42,7 @@ from nnunetv2.inference import data_iterators
 from nnunetv2.utilities.label_handling.label_handling import convert_labelmap_to_one_hot
 from typing import List, Union
 
-# Monkey Patch: 避免多进程问题
+# Monkey patch: avoid multiprocessing issues
 from nnunetv2.inference import predict_from_raw_data
 
 def preprocessing_iterator_fromfiles_synchronous(
@@ -81,17 +81,17 @@ def preprocessing_iterator_fromfiles_synchronous(
 data_iterators.preprocessing_iterator_fromfiles = preprocessing_iterator_fromfiles_synchronous
 predict_from_raw_data.preprocessing_iterator_fromfiles = preprocessing_iterator_fromfiles_synchronous
 
-# ========== 统一评估指标配置 ==========
+# ========== Unified evaluation metric configuration ==========
 val_evaluator = dict(
     type='CrackIoUMetric', 
     iou_metrics=['mIoU', 'mDice'],
-    # 粘连惩罚参数 (Soft模式)
-    penalty_scale=0.18,      # 惩罚缩放因子
-    max_penalty=0.30,        # 最大惩罚值 (30%)
-    min_component_size=10    # 最小连通组件大小
+    # Adhesion penalty parameters (soft mode)
+    penalty_scale=0.18,      # penalty scaling factor
+    max_penalty=0.30,        # maximum penalty value (30%)
+    min_component_size=10    # minimum connected component size
 )
 
-# ========== 配置 ==========
+# ========== Configuration ==========
 DATASET_NAME = "Dataset123_Perovskite"
 NNUNET_RAW = "/home/chen/seg6/U-Mamba/data/nnUNet_raw"
 NNUNET_RESULTS = "/home/chen/seg6/U-Mamba/data/nnUNet_results"
@@ -112,18 +112,18 @@ YOLO_DETECTOR = '/home/chen/runs/detect/perovskite_grains_opt/yolo11x_cbam_detec
 
 LABEL_MAP = {'background': 0, 'PbI2': 1, 'ABO3': 2}
 
-# ========== 工具函数 ==========
+# ========== Utility functions ==========
 def get_model_info(predictor):
-    """获取模型的参数量和计算量"""
+    """Get model parameter count and computational cost."""
     try:
         network = predictor.network
         
-        # 计算参数量
+        # Calculate parameter count
         total_params = sum(p.numel() for p in network.parameters())
         trainable_params = sum(p.numel() for p in network.parameters() if p.requires_grad)
-        params_m = total_params / 1e6  # 转换为M
+        params_m = total_params / 1e6  # convert to millions
         
-        # 计算FLOPs (使用输入尺寸估算)
+        # Calculate FLOPs (estimated from input size)
         try:
             cm = predictor.configuration_manager
             if hasattr(cm, 'patch_size'):
@@ -131,25 +131,25 @@ def get_model_info(predictor):
             elif hasattr(cm, 'configuration') and 'patch_size' in cm.configuration:
                 patch_size = cm.configuration['patch_size']
             else:
-                # 根据网络结构推断默认尺寸
+                # Infer default size from network structure
                 conv_op = getattr(network, 'conv_op', torch.nn.Conv2d)
                 is_2d = conv_op == torch.nn.Conv2d
                 patch_size = [256, 256] if is_2d else [128, 128, 128]
             
-            # 获取输入通道数
+            # Get number of input channels
             num_channels = get_input_channels(predictor)
             
-            # 优先使用thop库计算FLOPs (更精确)
+            # Prefer thop library for FLOPs (more accurate)
             input_shape = [num_channels] + list(patch_size)
             thop_result = get_model_info_thop(network, input_shape)
             
             if thop_result is not None:
                 return thop_result
             
-            # 使用简化估算计算FLOPs
+            # Use simplified FLOPs estimation
             gflops = estimate_gflops_simple(network, num_channels, patch_size)
         except Exception as e:
-            print(f"  警告: FLOPs计算失败 - {e}")
+            print(f"  Warning: FLOPs calculation failed - {e}")
             gflops = 0.0
         
         return {
@@ -159,17 +159,17 @@ def get_model_info(predictor):
             'trainable_params': trainable_params
         }
     except Exception as e:
-        print(f"  警告: 无法获取模型信息 - {e}")
+        print(f"  Warning: unable to get model info - {e}")
         return {'params_m': 0.0, 'gflops': 0.0, 'total_params': 0, 'trainable_params': 0}
 
 
 def estimate_gflops_simple(network, in_channels, input_size):
     """
-    简化估算GFLOPs - 不使用hook，直接根据层参数计算
+    Simplified GFLOPs estimation - no hooks, computed directly from layer parameters.
     """
     total_flops = 0
     
-    # 计算卷积层FLOPs的辅助函数
+    # Helper function for convolution FLOPs
     def calc_conv_flops(module, input_spatial_size):
         if isinstance(module, (torch.nn.Conv3d, torch.nn.Conv2d)):
             k = module.kernel_size[0] if isinstance(module.kernel_size, (tuple, list)) else module.kernel_size
@@ -177,7 +177,7 @@ def estimate_gflops_simple(network, in_channels, input_size):
             c_out = module.out_channels
             groups = module.groups
             
-            # 计算输出空间尺寸
+            # Calculate output spatial size
             if len(input_spatial_size) == 3:  # 3D
                 h_out, w_out, d_out = input_spatial_size
                 kernel_ops = k ** 3 * c_in * c_out // groups
@@ -193,7 +193,7 @@ def estimate_gflops_simple(network, in_channels, input_size):
             flops = module.in_features * module.out_features * 2
             return flops, input_spatial_size
         elif isinstance(module, torch.nn.BatchNorm3d):
-            # BN: 2 * C * H * W * D (乘法和加法)
+            # BN: 2 * C * H * W * D (multiplication and addition)
             flops = 2 * module.num_features * input_spatial_size[0] * input_spatial_size[1] * input_spatial_size[2]
             return flops, input_spatial_size
         elif isinstance(module, torch.nn.BatchNorm2d):
@@ -201,56 +201,56 @@ def estimate_gflops_simple(network, in_channels, input_size):
             return flops, input_spatial_size
         return 0, input_spatial_size
     
-    # 估算前向传播过程中的尺寸变化
-    # 使用encoder的层数来估算下采样次数
+    # Estimate size changes during forward propagation
+    # Use encoder depth to estimate downsampling steps
     current_size = list(input_size)
     is_3d = len(input_size) == 3
     
-    # 遍历所有模块，按顺序估算FLOPs
+    # Iterate over all modules and estimate FLOPs in order
     for name, module in network.named_modules():
-        # 跳过容器模块
+        # Skip container modules
         if len(list(module.children())) > 0:
             continue
         
         flops, new_size = calc_conv_flops(module, current_size)
         total_flops += flops
         
-        # 如果是下采样层(卷积且stride>1)，更新尺寸
+        # If downsampling layer (conv with stride > 1), update size
         if isinstance(module, (torch.nn.Conv3d, torch.nn.Conv2d)) and hasattr(module, 'stride'):
             stride = module.stride[0] if isinstance(module.stride, (tuple, list)) else module.stride
             if stride > 1:
                 current_size = [max(s // stride, 1) for s in current_size]
     
-    # 如果没有计算到FLOPs，使用参数量进行粗略估算
+    # If no FLOPs were computed, roughly estimate from parameter count
     if total_flops == 0:
         total_params = sum(p.numel() for p in network.parameters())
-        # 假设每个参数平均参与100次运算
+        # Assume each parameter participates in ~100 operations on average
         total_flops = total_params * 100
     
-    return total_flops / 1e9  # 转换为GFLOPs
+    return total_flops / 1e9  # convert to GFLOPs
 
 
 def get_model_info_thop(network, input_shape):
     """
-    使用thop库计算模型的参数量和计算量 (更精确)
-    使用深拷贝隔离thop的影响，避免污染原始模型
+    Use the thop library to compute model parameters and FLOPs (more accurate).
+    Deep-copy the model to isolate thop's side effects and avoid polluting the original model.
     """
     try:
         import copy
         from thop import profile, clever_format
         
-        # 深拷贝模型，避免thop的hooks污染原始模型
+        # Deep-copy model to avoid thop hooks polluting the original model
         network_copy = copy.deepcopy(network)
         network_copy.eval()
         
-        # 创建dummy input
+        # Create dummy input
         device = next(network_copy.parameters()).device
         dummy_input = torch.randn(1, *input_shape).to(device)
         
-        # 计算FLOPs和参数量
+        # Calculate FLOPs and parameters
         flops, params = profile(network_copy, inputs=(dummy_input,), verbose=False)
         
-        # 删除拷贝的模型，释放内存
+        # Delete copied model to free memory
         del network_copy
         torch.cuda.empty_cache()
         
@@ -261,11 +261,11 @@ def get_model_info_thop(network, input_shape):
             'trainable_params': sum(p.numel() for p in network.parameters() if p.requires_grad)
         }
     except Exception as e:
-        print(f"  thop计算失败: {e}, 使用简化估算")
+        print(f"  thop calculation failed: {e}, using simplified estimation")
         return None
 
 def get_input_channels(predictor):
-    """获取模型输入通道数"""
+    """Get the number of model input channels."""
     network = predictor.network
     if hasattr(network, 'encoder') and hasattr(network.encoder, 'stem'):
         return network.encoder.stem[0].conv1.in_channels
@@ -275,7 +275,7 @@ def get_input_channels(predictor):
     return params[0].shape[1] if params else 1
 
 def shrink_patch_size_for_oom(predictor, scale=0.8, min_size=64):
-    """OOM时缩小patch_size"""
+    """Reduce patch_size when OOM occurs."""
     cm = predictor.configuration_manager
     if not hasattr(cm, 'num_pool_per_axis') or not hasattr(cm, 'patch_size'):
         return False
@@ -302,11 +302,11 @@ def shrink_patch_size_for_oom(predictor, scale=0.8, min_size=64):
         compute_gaussian.cache_clear()
     except:
         pass
-    print(f"  ✅ 已降低 patch_size: {current} -> {new}")
+    print(f"  ✅ Reduced patch_size: {current} -> {new}")
     return True
 
 def has_cuda_only_ops(network):
-    """检查是否包含仅CUDA的算子"""
+    """Check whether the network contains CUDA-only operators."""
     for m in network.modules():
         name, mod = type(m).__name__.lower(), type(m).__module__.lower()
         if 'mamba' in name or 'mamba' in mod or 'causal_conv1d' in mod:
@@ -317,9 +317,9 @@ def normalize_name(name):
     name = name.lower()
     return 'PbI2' if 'pbi' in name else 'ABO3' if 'abo' in name else name
 
-# ========== 核心功能 ==========
+# ========== Core functionality ==========
 def get_all_trainers():
-    """获取所有trainer模型"""
+    """Get all trainer models."""
     dataset_dir = Path(f"{NNUNET_RESULTS}/{DATASET_NAME}")
     if not dataset_dir.exists():
         return []
@@ -358,7 +358,7 @@ def get_all_trainers():
 
 
 def create_predictor(trainer_info):
-    """创建预测器，带OOM回退"""
+    """Create a predictor with OOM fallback."""
     for perform_on_device in [True, False]:
         try:
             return nnUNetPredictor(
@@ -374,11 +374,11 @@ def create_predictor(trainer_info):
         except RuntimeError as e:
             if 'out of memory' not in str(e).lower() or perform_on_device is False:
                 raise e
-            print("  ⚠️ 显存不足，切换到CPU/GPU混合模式...")
+            print("  ⚠️ Insufficient GPU memory, switching to CPU/GPU hybrid mode...")
     return None
 
 def build_input_list(input_folder, num_channels):
-    """构建输入文件列表"""
+    """Build input file list."""
     files_0000 = sorted([f for f in os.listdir(input_folder) if f.endswith('_0000.png')])
     case_ids = [f.replace('_0000.png', '') for f in files_0000]
     
@@ -395,27 +395,27 @@ def build_input_list(input_folder, num_channels):
     return list_of_lists, missing
 
 def apply_oom_strategy(predictor, attempt, max_retries):
-    """应用OOM恢复策略"""
+    """Apply OOM recovery strategy."""
     strategies = [
-        ("切换到CPU/GPU混合模式", lambda: setattr(predictor, 'perform_everything_on_device', False)),
-        ("禁用TTA并增大步长", lambda: (setattr(predictor, 'use_mirroring', False), 
+        ("Switch to CPU/GPU hybrid mode", lambda: setattr(predictor, 'perform_everything_on_device', False)),
+        ("Disable TTA and increase step size", lambda: (setattr(predictor, 'use_mirroring', False), 
                                        setattr(predictor, 'tile_step_size', 0.9))),
-        ("关闭高斯权重融合", lambda: setattr(predictor, 'use_gaussian', False) 
+        ("Disable Gaussian weight blending", lambda: setattr(predictor, 'use_gaussian', False) 
             if ALLOW_AGGRESSIVE_OOM_FALLBACK else None),
-        ("缩小patch_size", lambda: shrink_patch_size_for_oom(predictor) 
+        ("Reduce patch_size", lambda: shrink_patch_size_for_oom(predictor) 
             if ALLOW_AGGRESSIVE_OOM_FALLBACK else None),
-        ("清理缓存", lambda: (torch.cuda.empty_cache(), __import__('gc').collect())),
+        ("Clear cache", lambda: (torch.cuda.empty_cache(), __import__('gc').collect())),
     ]
     
     if attempt < len(strategies):
         name, action = strategies[attempt]
         if action() is not False:
-            print(f"  策略{attempt+1}: {name}...")
+            print(f"  Strategy {attempt+1}: {name}...")
             return True
     
-    # 最后手段: CPU模式
+    # Last resort: CPU mode
     if attempt >= max_retries - 2 and not has_cuda_only_ops(predictor.network):
-        print("  策略: 强制切换到CPU模式...")
+        print("  Strategy: force switch to CPU mode...")
         predictor.perform_everything_on_device = False
         predictor.device = torch.device('cpu')
         predictor.network = predictor.network.to('cpu')
@@ -425,9 +425,9 @@ def apply_oom_strategy(predictor, attempt, max_retries):
     return attempt < max_retries - 1
 
 def predict_with_trainer(trainer_info, output_folder, input_folder):
-    """使用指定trainer进行预测"""
+    """Run prediction with the specified trainer."""
     print(f"\n{'='*60}")
-    print(f"正在评估: {trainer_info['name']}")
+    print(f"Evaluating: {trainer_info['name']}")
     print(f"  Fold: {trainer_info['fold_name']}, Checkpoint: {trainer_info['checkpoint_name']}")
     print(f"{'='*60}")
     
@@ -439,35 +439,35 @@ def predict_with_trainer(trainer_info, output_folder, input_folder):
         
         predictor = create_predictor(trainer_info)
         
-        # 初始化模型，但暂时不加载权重
+        # Initialize model (weights not loaded yet)
         predictor.initialize_from_trained_model_folder(
             trainer_info["path"], use_folds=use_folds, checkpoint_name=trainer_info["checkpoint_name"]
         )
         
-        # 检查网络是否成功加载
+        # Check whether the network loaded successfully
         if hasattr(predictor, 'network') and predictor.network is not None:
-            print(f"  ✅ 模型成功加载")
+            print(f"  ✅ Model loaded successfully")
         else:
-            print(f"  ❌ 模型加载失败")
+            print(f"  ❌ Model loading failed")
             return False, None
         
-        # 获取模型信息 (参数量和FLOPs)
+        # Get model info (parameters and FLOPs)
         model_info = get_model_info(predictor)
-        print(f"  模型参数量: {model_info['params_m']:.2f}M, GFLOPs: {model_info['gflops']:.2f}G")
+        print(f"  Model parameters: {model_info['params_m']:.2f}M, GFLOPs: {model_info['gflops']:.2f}G")
         
         num_channels = get_input_channels(predictor)
-        print(f"  模型期望输入通道数: {num_channels}")
+        print(f"  Model expected input channels: {num_channels}")
         
         list_of_lists, missing = build_input_list(input_folder, num_channels)
         if not list_of_lists:
-            print(f"  ❌ 未找到测试图像")
+            print(f"  ❌ No test images found")
             return False
         if missing:
-            print(f"  ❌ 缺少{len(missing)}个通道文件")
+            print(f"  ❌ Missing {len(missing)} channel files")
             return False
         
         os.makedirs(output_folder, exist_ok=True)
-        print(f"  开始对{len(list_of_lists)}个样本进行预测...")
+        print(f"  Starting prediction for {len(list_of_lists)} samples...")
         
         for attempt in range(6):
             try:
@@ -476,34 +476,34 @@ def predict_with_trainer(trainer_info, output_folder, input_folder):
                     num_processes_preprocessing=1, num_processes_segmentation_export=1,
                     folder_with_segs_from_prev_stage=None, num_parts=1, part_id=0
                 )
-                print(f"  预测完成: {output_folder}")
+                print(f"  Prediction complete: {output_folder}")
                 return True, model_info
             except (torch.cuda.OutOfMemoryError, RuntimeError) as e:
                 err_str = str(e).lower()
                 if 'out of memory' not in err_str and 'expected x.is_cuda()' not in err_str:
                     if 'Missing key(s)' in str(e) or 'Unexpected key(s)' in str(e):
-                        print(f"  警告: 模型权重加载时出现键不匹配，尝试非严格加载...")
-                        print(f"  错误详情: {str(e)[:500]}...")
-                        # 如果遇到键不匹配问题，跳过本次预测，继续下一个模型
+                        print(f"  Warning: key mismatch when loading model weights, trying non-strict loading...")
+                        print(f"  Error details: {str(e)[:500]}...")
+                        # If key mismatch occurs, skip this prediction and continue to the next model
                         return False
                     raise e
                 if 'expected x.is_cuda()' in err_str:
-                    print("  ❌ 包含CUDA-only算子，无法使用CPU模式")
+                    print("  ❌ Contains CUDA-only operators, cannot use CPU mode")
                     return False
                 if not apply_oom_strategy(predictor, attempt, 6):
-                    print("  ❌ 所有OOM策略均失败")
+                    print("  ❌ All OOM strategies failed")
                     return False, None
     except Exception as e:
         if 'Missing key(s)' in str(e) or 'Unexpected key(s)' in str(e):
-            print(f"  警告: 模型权重加载时出现键不匹配，跳过此模型...")
-            print(f"  错误详情: {str(e)[:500]}...")
+            print(f"  Warning: key mismatch when loading model weights, skipping this model...")
+            print(f"  Error details: {str(e)[:500]}...")
             return False, None
-        print(f"  ❌ 预测失败: {e}")
+        print(f"  ❌ Prediction failed: {e}")
         traceback.print_exc()
         return False, None
 
 def visualize_prediction_mask(pred_mask, raw_image_path, output_path):
-    """可视化预测结果"""
+    """Visualize prediction result."""
     raw = cv2.imread(raw_image_path, cv2.IMREAD_GRAYSCALE)
     if raw is None:
         return False
@@ -521,7 +521,7 @@ def visualize_prediction_mask(pred_mask, raw_image_path, output_path):
     return True
 
 def visualize_errors(trainer_name, pred_folder, raw_images_dir):
-    """生成错误可视化"""
+    """Generate error visualizations."""
     vis_dir = f"{OUTPUT_DIR}/{trainer_name}_error_visualizations"
     pred_vis_dir = f"{OUTPUT_DIR}/{trainer_name}_prediction_visualizations"
     os.makedirs(vis_dir, exist_ok=True)
@@ -565,17 +565,17 @@ def visualize_errors(trainer_name, pred_folder, raw_images_dir):
 
 class CrackIoUMetric:
     """
-    裂缝IoU评估指标
-    支持粘连惩罚和小组件过滤的统一评估器
+    Crack IoU evaluation metric.
+    Unified evaluator supporting adhesion penalty and small-component filtering.
     """
     
     def __init__(self, iou_metrics=['mIoU', 'mDice'], penalty_scale=0.18, max_penalty=0.30, min_component_size=10):
         """
         Args:
-            iou_metrics: 要计算的指标列表，支持 'mIoU', 'mDice'
-            penalty_scale: 粘连惩罚缩放因子 (默认0.18)
-            max_penalty: 最大惩罚值 (默认0.30 = 30%)
-            min_component_size: 最小连通组件大小，小于此值的组件将被忽略
+            iou_metrics: list of metrics to compute, supports 'mIoU', 'mDice'
+            penalty_scale: adhesion penalty scaling factor (default 0.18)
+            max_penalty: maximum penalty value (default 0.30 = 30%)
+            min_component_size: minimum connected component size; components smaller than this are ignored
         """
         self.iou_metrics = iou_metrics
         self.penalty_scale = penalty_scale
@@ -584,7 +584,7 @@ class CrackIoUMetric:
         self.results = {}
     
     def compute_iou(self, pred, target, class_id):
-        """计算单个类别的IoU"""
+        """Compute IoU for a single class."""
         pred_mask = (pred == class_id).astype(np.uint8)
         target_mask = (target == class_id).astype(np.uint8)
         
@@ -596,7 +596,7 @@ class CrackIoUMetric:
         return intersection / union
     
     def compute_dice(self, pred, target, class_id):
-        """计算单个类别的Dice"""
+        """Compute Dice for a single class."""
         pred_mask = (pred == class_id).astype(np.uint8)
         target_mask = (target == class_id).astype(np.uint8)
         
@@ -609,12 +609,12 @@ class CrackIoUMetric:
         return 2.0 * intersection / (pred_sum + target_sum)
     
     def filter_small_components(self, mask, class_id):
-        """过滤小于min_component_size的连通组件"""
+        """Filter connected components smaller than min_component_size."""
         class_mask = (mask == class_id).astype(np.uint8)
         num_labels, labels, stats, centroids = cv2.connectedComponentsWithStats(class_mask, connectivity=8)
         
         filtered_mask = np.zeros_like(mask)
-        for i in range(1, num_labels):  # 从1开始，跳过背景
+        for i in range(1, num_labels):  # start from 1 to skip background
             if stats[i, cv2.CC_STAT_AREA] >= self.min_component_size:
                 filtered_mask[labels == i] = class_id
         
@@ -622,56 +622,56 @@ class CrackIoUMetric:
     
     def compute_adhesion_penalty(self, pred, target, class_id, penalty_scale=0.18, max_penalty=0.30):
         """
-        计算粘连惩罚分数 (Soft模式)
-        
-        逻辑:
-        1. 如果 Pred_components >= GT_components: Adhesion_Ratio = 0 (无粘连)
-        2. 否则: Adhesion_Ratio = (GT_components - Pred_components) / GT_components
-        3. Adhesion_Penalty = min(Adhesion_Ratio × penalty_scale, max_penalty)
-        
+        Compute adhesion penalty score (soft mode).
+
+        Logic:
+        1. If Pred_components >= GT_components: Adhesion_Ratio = 0 (no adhesion)
+        2. Otherwise: Adhesion_Ratio = (GT_components - Pred_components) / GT_components
+        3. Adhesion_Penalty = min(Adhesion_Ratio * penalty_scale, max_penalty)
+
         Args:
-            pred: 预测掩码
-            target: GT掩码
-            class_id: 类别ID
-            penalty_scale: 惩罚缩放因子 (默认0.18)
-            max_penalty: 最大惩罚值 (默认0.30)
+            pred: predicted mask
+            target: ground-truth mask
+            class_id: class ID
+            penalty_scale: penalty scaling factor (default 0.18)
+            max_penalty: maximum penalty value (default 0.30)
         """
         pred_mask = (pred == class_id).astype(np.uint8)
         target_mask = (target == class_id).astype(np.uint8)
         
-        # 对预测和GT进行连通组件分析
+        # Run connected component analysis on prediction and GT
         pred_num_labels, _ = cv2.connectedComponents(pred_mask, connectivity=8)[:2]
         target_num_labels, _ = cv2.connectedComponents(target_mask, connectivity=8)[:2]
         
-        # 减去背景
+        # Subtract background
         pred_components = pred_num_labels - 1
         target_components = target_num_labels - 1
         
-        # 如果没有GT组件或没有预测组件，不计算惩罚
+        # If no GT components or no predicted components, no penalty
         if target_components == 0 or pred_components == 0:
             return 0.0
         
-        # 计算粘连度 (Adhesion Ratio)
+        # Compute adhesion ratio
         if pred_components >= target_components:
-            adhesion_ratio = 0.0  # 无粘连
+            adhesion_ratio = 0.0  # no adhesion
         else:
             adhesion_ratio = (target_components - pred_components) / target_components
         
-        # 计算惩罚
+        # Compute penalty
         adhesion_penalty = adhesion_ratio * penalty_scale
         adhesion_penalty = min(adhesion_penalty, max_penalty)
         
         return adhesion_penalty
     
     def compute_metrics_on_case(self, pred_path, target_path):
-        """计算单个案例的指标"""
+        """Compute metrics for a single case."""
         pred = cv2.imread(pred_path, cv2.IMREAD_GRAYSCALE)
         target = cv2.imread(target_path, cv2.IMREAD_GRAYSCALE)
         
         if pred is None or target is None:
             return None
         
-        # 确保尺寸一致
+        # Ensure sizes match
         if pred.shape != target.shape:
             pred = cv2.resize(pred, (target.shape[1], target.shape[0]), interpolation=cv2.INTER_NEAREST)
         
@@ -680,24 +680,24 @@ class CrackIoUMetric:
         for class_id in VALID_CLASS_IDS:
             class_name = CLASS_NAMES.get(class_id, f"class_{class_id}")
             
-            # 应用小组件过滤
+            # Apply small-component filtering
             if self.min_component_size > 0:
                 filtered_pred = self.filter_small_components(pred, class_id)
             else:
                 filtered_pred = pred
             
-            # 基础指标
+            # Basic metrics
             iou = self.compute_iou(filtered_pred, target, class_id)
             dice = self.compute_dice(filtered_pred, target, class_id)
             
-            # 粘连惩罚 (Soft模式)
+            # Adhesion penalty (soft mode)
             adhesion_penalty = self.compute_adhesion_penalty(
                 filtered_pred, target, class_id, 
                 penalty_scale=self.penalty_scale, 
                 max_penalty=self.max_penalty
             )
             
-            # 应用惩罚: Final = Original × (1 - Adhesion_Penalty)
+            # Apply penalty: Final = Original * (1 - Adhesion_Penalty)
             penalized_iou = iou * (1 - adhesion_penalty)
             penalized_dice = dice * (1 - adhesion_penalty)
             
@@ -713,8 +713,8 @@ class CrackIoUMetric:
     
     def compute_metrics_on_folder(self, folder_pred, folder_ref):
         """
-        计算整个文件夹的指标
-        兼容nnUNet的compute_metrics_on_folder接口
+        Compute metrics for an entire folder.
+        Compatible with nnUNet's compute_metrics_on_folder interface.
         """
         pred_files = sorted([f for f in os.listdir(folder_pred) if f.endswith('.png')])
         
@@ -737,7 +737,7 @@ class CrackIoUMetric:
         if not all_case_metrics:
             return {}
         
-        # 计算平均指标
+        # Compute average metrics
         mean_metrics = {'mean': {}}
         
         for class_id in VALID_CLASS_IDS:
@@ -759,12 +759,12 @@ class CrackIoUMetric:
 
 
 def evaluate_predictions(pred_folder, trainer_info, model_info=None):
-    """评估预测结果 - 使用统一评估指标"""
+    """Evaluate predictions - using unified evaluation metric."""
     try:
         if not [f for f in os.listdir(pred_folder) if f.endswith('.png')]:
             return None
         
-        # 使用统一的CrackIoUMetric评估器 (Soft粘连惩罚模式)
+        # Use unified CrackIoUMetric evaluator (soft adhesion penalty mode)
         evaluator = CrackIoUMetric(
             iou_metrics=val_evaluator['iou_metrics'],
             penalty_scale=val_evaluator.get('penalty_scale', 0.18),
@@ -778,8 +778,8 @@ def evaluate_predictions(pred_folder, trainer_info, model_info=None):
         )
         
         if not metrics or 'mean' not in metrics:
-            print(f"  ⚠️ CrackIoUMetric评估失败，尝试使用标准评估...")
-            # 回退到标准评估
+            print(f"  ⚠️ CrackIoUMetric evaluation failed, trying standard evaluation...")
+            # Fall back to standard evaluation
             try:
                 from nnunetv2.imageio.simpleitk_reader_writer import SimpleITKIO
                 reader = SimpleITKIO()
@@ -795,7 +795,7 @@ def evaluate_predictions(pred_folder, trainer_info, model_info=None):
         
         mean_metrics = metrics.get("mean", {})
         
-        # 使用惩罚后的指标作为主要评估指标
+        # Use penalized metrics as primary evaluation indicators
         dice_sum = sum(
             (mean_metrics.get(cid) or mean_metrics.get(str(cid), {})).get("PenalizedDice", 
                 (mean_metrics.get(cid) or mean_metrics.get(str(cid), {})).get("Dice", 0))
@@ -810,7 +810,7 @@ def evaluate_predictions(pred_folder, trainer_info, model_info=None):
         avg_dice = dice_sum / len(VALID_CLASS_IDS)
         avg_iou = iou_sum / len(VALID_CLASS_IDS)
         
-        # 计算原始指标
+        # Compute raw metrics
         raw_dice_sum = sum(
             (mean_metrics.get(cid) or mean_metrics.get(str(cid), {})).get("Dice", 0)
             for cid in VALID_CLASS_IDS
@@ -830,10 +830,10 @@ def evaluate_predictions(pred_folder, trainer_info, model_info=None):
             "model_type": os.path.basename(trainer_info['path']),
             "model_info": model_info or {'params_m': 0.0, 'gflops': 0.0},
             "overall": {
-                "dice": avg_dice,  # 惩罚后的Dice
-                "iou": avg_iou,    # 惩罚后的IoU
-                "raw_dice": avg_raw_dice,  # 原始Dice
-                "raw_iou": avg_raw_iou     # 原始IoU
+                "dice": avg_dice,  # penalized Dice
+                "iou": avg_iou,    # penalized IoU
+                "raw_dice": avg_raw_dice,  # raw Dice
+                "raw_iou": avg_raw_iou     # raw IoU
             },
             "per_class": {}
         }
@@ -849,20 +849,20 @@ def evaluate_predictions(pred_folder, trainer_info, model_info=None):
                 "adhesion_penalty": cm.get("AdhesionPenalty", 0)
             }
         
-        # 保存详细评估结果
+        # Save detailed evaluation results
         with open(f"{pred_folder}/crack_iou_metrics.json", 'w') as f:
             json.dump(metrics, f, indent=2)
         
-        print(f"  原始指标 - 平均 Dice: {avg_raw_dice:.4f}, 平均 IoU: {avg_raw_iou:.4f}")
-        print(f"  惩罚后指标 - 平均 Dice: {avg_dice:.4f}, 平均 IoU: {avg_iou:.4f}")
+        print(f"  Raw metrics - avg Dice: {avg_raw_dice:.4f}, avg IoU: {avg_raw_iou:.4f}")
+        print(f"  Penalized metrics - avg Dice: {avg_dice:.4f}, avg IoU: {avg_iou:.4f}")
         return results
     except Exception as e:
-        print(f"  ❌ 评估失败: {e}")
+        print(f"  ❌ Evaluation failed: {e}")
         traceback.print_exc()
         return None
 
 def save_comparison_results(all_results):
-    """保存对比结果"""
+    """Save comparison results."""
     valid = [r for r in all_results if r is not None]
     if not valid:
         return None
@@ -874,7 +874,7 @@ def save_comparison_results(all_results):
     for r in valid:
         model_info = r.get("model_info", {})
         
-        # 计算平均粘连惩罚
+        # Compute average adhesion penalty
         adhesion_penalties = []
         for ck, cv in r["per_class"].items():
             if "adhesion_penalty" in cv:
@@ -888,10 +888,10 @@ def save_comparison_results(all_results):
             "Checkpoint": r["checkpoint"],
             "Params(M)": model_info.get("params_m", 0.0),
             "GFLOPs(G)": model_info.get("gflops", 0.0),
-            "Raw Dice": r["overall"].get("raw_dice", r["overall"]["dice"]),  # 原始Dice
-            "Penalized Dice": r["overall"]["dice"],  # 惩罚后Dice
-            "Dice Drop": r["overall"].get("raw_dice", r["overall"]["dice"]) - r["overall"]["dice"],  # Dice下降值
-            "Adhesion Penalty": avg_adhesion_penalty,  # 平均粘连惩罚
+            "Raw Dice": r["overall"].get("raw_dice", r["overall"]["dice"]),  # raw Dice
+            "Penalized Dice": r["overall"]["dice"],  # penalized Dice
+            "Dice Drop": r["overall"].get("raw_dice", r["overall"]["dice"]) - r["overall"]["dice"],  # Dice drop
+            "Adhesion Penalty": avg_adhesion_penalty,  # average adhesion penalty
             "Avg IoU": r["overall"]["iou"]
         }
         for ck, cv in r["per_class"].items():
@@ -906,17 +906,17 @@ def save_comparison_results(all_results):
     df.to_csv(f"{OUTPUT_DIR}/comparison_results.csv", index=False)
     
     print(f"\n{'='*140}")
-    print("模型性能排名 (按惩罚后Dice排序):")
+    print("Model performance ranking (sorted by penalized Dice):")
     print(f"{'='*140}")
-    # 调整显示列顺序
+    # Adjust display column order
     col_order = ["Trainer", "Params(M)", "GFLOPs(G)", "Raw Dice", "Penalized Dice", "Dice Drop", "Adhesion Penalty", "Avg IoU"]
     other_cols = [c for c in df.columns if c not in col_order]
     display_df = df[col_order + other_cols]
     print(display_df.to_string(index=False))
     
-    # 同时打印简化版表格（仅关键指标）
+    # Also print a simplified table (key metrics only)
     print(f"\n{'='*100}")
-    print("简化对比表:")
+    print("Simplified comparison table:")
     print(f"{'='*100}")
     simple_cols = ["Trainer", "Params(M)", "Raw Dice", "Penalized Dice", "Dice Drop", "Adhesion Penalty"]
     print(df[simple_cols].to_string(index=False))
@@ -925,34 +925,34 @@ def save_comparison_results(all_results):
 
 def main():
     print(f"{'='*80}")
-    print("Dataset123_Perovskite 测试集对比评估")
+    print("Dataset123_Perovskite test set comparison evaluation")
     print(f"{'='*80}")
     
     if not os.path.exists(RAW_TEST_IMAGES):
-        print("❌ 关键目录不存在")
+        print("❌ Critical directory does not exist")
         return
     
-    # 准备数据
+    # Prepare data
     # prepared_dir = os.path.join(OUTPUT_DIR, "test_input_prepared")
-    # print("\n[0/3] 准备YOLO辅助通道数据...")
+    # print("\n[0/3] Preparing YOLO auxiliary channel data...")
     # input_dir = prepared_dir if prepare_yolo_input(RAW_TEST_IMAGES, prepared_dir) else RAW_TEST_IMAGES
-    print("\n[0/3] 使用原始测试集数据 (假设已由123脚本处理)...")
+    print("\n[0/3] Using raw test set data (assumed already processed by 123 script)...")
     input_dir = RAW_TEST_IMAGES
-    print(f"✅ 数据目录: {input_dir}")
+    print(f"✅ Data directory: {input_dir}")
     
-    # 获取trainer
-    print("\n[1/3] 发现trainer模型...")
+    # Get trainers
+    print("\n[1/3] Discovering trainer models...")
     trainers = get_all_trainers()
     if not trainers:
-        print("❌ 未找到trainer")
+        print("❌ No trainer found")
         return
-    print(f"发现 {len(trainers)} 个trainer")
+    print(f"Found {len(trainers)} trainers")
     
-    # 评估
-    print(f"\n[2/3] 开始评估...")
+    # Evaluate
+    print(f"\n[2/3] Starting evaluation...")
     all_results = []
     
-    for trainer in tqdm(trainers, desc="评估进度"):
+    for trainer in tqdm(trainers, desc="Evaluation progress"):
         pred_folder = f"{OUTPUT_DIR}/{trainer['name']}_predictions"
         
         success, model_info = predict_with_trainer(trainer, pred_folder, input_dir)
@@ -963,7 +963,7 @@ def main():
                 visualize_errors(trainer['name'], pred_folder, input_dir)
     
     save_comparison_results(all_results)
-    print(f"\n✅ 全部完成!")
+    print(f"\n✅ All done!")
 
 if __name__ == "__main__":
     main()

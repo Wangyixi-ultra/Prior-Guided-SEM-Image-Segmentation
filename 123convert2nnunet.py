@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
-一键把钙钛矿 SEM 灰度图 + 8-bit 灰度 mask 转成 nnUNet v2 标准格式
-并生成可视化叠加图（红色=defect）用于肉眼检查是否被遮盖
+One-click conversion of perovskite SEM grayscale images + 8-bit grayscale masks into nnUNet v2 standard format,
+and generate overlay visualizations (red=defect) for visual inspection of coverage.
 python convert2nnunet_vis.py
-增加测试集，用于最终模型评估
+Adds a test set for final model evaluation.
 """
 import os
 import shutil
@@ -13,55 +13,55 @@ import numpy as np
 from tqdm import tqdm
 from PIL import Image
 
-# ========== 用户配置 ==========
-raw_img    = '/home/chen/seg6/raw/addtrainimage'          # 原始灰度图
-raw_mask   = '/home/chen/seg6/raw/addtrain_mask_only_gray'  # 0/120/180/255 灰度 mask
-out_root   = '/home/chen/seg6/U-Mamba/data/nnUNet_raw/dataset'                              # 临时目录
+# ========== User configuration ==========
+raw_img    = '/home/chen/seg6/raw/addtrainimage'          # raw grayscale images
+raw_mask   = '/home/chen/seg6/raw/addtrain_mask_only_gray'  # 0/120/180/255 grayscale mask
+out_root   = '/home/chen/seg6/U-Mamba/data/nnUNet_raw/dataset'                              # temporary directory
 task_id    = 123
 task_name  = f'Dataset{task_id}_Perovskite'
 nnunet_out = os.path.join(os.path.dirname(out_root), task_name)
 # ========================================
 
-# 建立可视化目录
+# Create visualization directory
 vis_dir = 'vis'
 os.makedirs(vis_dir, exist_ok=True)
 
-# 1. 建立 nnUNet 目录结构（Tr=训练集, Ts=测试集）
-# 注意：验证集由nnUNet框架在训练时自动从训练集中划分，无需在此定义
+# 1. Build nnUNet directory structure (Tr=training set, Ts=test set)
+# Note: the validation set is automatically split from the training set by nnUNet during training; no need to define it here
 for split in ['Tr', 'Ts']:
     os.makedirs(f'{out_root}/images{split}', exist_ok=True)
     os.makedirs(f'{out_root}/labels{split}', exist_ok=True)
 
-# ---------- 2. 训练/测试拆分（仅按文件名规则） ----------
-# 支持多种图片格式
+# ---------- 2. Train/test split (based only on filename rules) ----------
+# Support multiple image formats
 supported_extensions = ['.png', '.tiff', '.tif','.jpg', '.jpeg', '.bmp']
 file_list = []
 for ext in supported_extensions:
     file_list.extend([f for f in os.listdir(raw_img) if f.lower().endswith(ext)])
 
 names = [os.path.splitext(n)[0] for n in file_list]
-# 规则：文件名里带 02、04、06、10、16、22、24、26、30、38、44、48 的进测试集，其余训练集
+# Rule: filenames containing 02, 04, 06, 10, 16, 22, 24, 26, 30, 38, 44, 48 go to the test set; the rest go to training
 test_names = {'02','06','24','37','38','41','50','65','66','67','82','84'}
 train_names = [n for n in names if not any(t in n for t in test_names)]
 test_names  = [n for n in names if     any(t in n for t in test_names)]
-print(f'训练集: {len(train_names)} 张, 测试集: {len(test_names)} 张')
+print(f'Training set: {len(train_names)} images, Test set: {len(test_names)} images')
 
-# ---------- 3. 处理函数（完全复用你已有的增强+可视化） ----------
+# ---------- 3. Processing function (reuses your existing augmentation + visualization) ----------
 def read_image_with_pil(path):
-    """使用PIL读取图片，支持多种格式"""
+    """Read image with PIL; supports multiple formats."""
     try:
         img = Image.open(path)
-        if img.mode != 'L':  # 如果不是灰度图
-            img = img.convert('L')  # 转换为灰度
+        if img.mode != 'L':  # if not grayscale
+            img = img.convert('L')  # convert to grayscale
         return np.array(img)
     except Exception as e:
-        print(f"读取图片失败 {path}: {e}")
+        print(f"Failed to read image {path}: {e}")
         return None
 
 def process_split(split, name_list):
     for name in tqdm(name_list, desc=f'Processing {split}'):
-        # 3.1 图像：强制单通道 8-bit
-        # 尝试多种扩展名
+        # 3.1 Image: force single-channel 8-bit
+        # Try multiple extensions
         img_path = None
         for ext in supported_extensions:
             test_path = os.path.join(raw_img, f'{name}{ext}')
@@ -70,23 +70,23 @@ def process_split(split, name_list):
                 break
         
         if img_path is None:
-            print(f"警告: 找不到图片文件 {name}")
+            print(f"Warning: image file not found {name}")
             continue
             
-        # 使用PIL读取图片以支持多种格式
+        # Read image with PIL to support multiple formats
         gray = read_image_with_pil(img_path)
         if gray is None:
             continue
 
-        # 强制缩放到 1024x768
+        # Force resize to 1024x768
         target_w, target_h = 1024, 768
         gray = cv2.resize(gray, (target_w, target_h), interpolation=cv2.INTER_LINEAR)
 
-        # 直接使用原图，不进行增强
+        # Use the original image directly, no augmentation
         gray_enh = gray
 
-        # 3.2 mask：灰度值 → 连续类别 ID
-        # 尝试多种扩展名
+        # 3.2 mask: grayscale values -> contiguous class IDs
+        # Try multiple extensions
         msk_path = None
         for ext in supported_extensions:
             test_path = os.path.join(raw_mask, f'{name}{ext}')
@@ -95,14 +95,14 @@ def process_split(split, name_list):
                 break
         
         if msk_path is None:
-            print(f"警告: 找不到mask文件 {name}")
+            print(f"Warning: mask file not found {name}")
             continue
             
         msk = read_image_with_pil(msk_path)
         if msk is None:
             continue
 
-        # 强制缩放到 1024x768 (使用最近邻插值保持标签值)
+        # Force resize to 1024x768 (use nearest-neighbor interpolation to preserve label values)
         msk = cv2.resize(msk, (target_w, target_h), interpolation=cv2.INTER_NEAREST)
 
         out_msk = np.zeros_like(msk)
@@ -110,8 +110,8 @@ def process_split(split, name_list):
         out_msk[msk == 180] = 2   # ABO₃
         #out_msk[msk == 255] = 3   # defect
 
-        # ---------- 可视化 ----------
-        # 创建伪彩色图用于可视化
+        # ---------- Visualization ----------
+        # Create pseudo-color image for visualization
         pseudo = cv2.applyColorMap(gray, cv2.COLORMAP_BONE)
         overlay = pseudo.copy()
         #overlay[msk == 255] = [0, 0, 255]
@@ -119,11 +119,11 @@ def process_split(split, name_list):
         overlay[msk == 180] = [0, 180, 180]
         cv2.imwrite(os.path.join(vis_dir, f'{name}_overlay.png'), overlay)
 
-        # 保存 nnUNet 格式文件
+        # Save in nnUNet format
         cv2.imwrite(os.path.join(out_root, f'images{split}', f'{name}_0000.png'), gray_enh)
         cv2.imwrite(os.path.join(out_root, f'labels{split}', f'{name}.png'), out_msk)
 
-# ---------- 4. 一次性生成 Tr/Ts ----------
+# ---------- 4. Generate Tr/Ts at once ----------
 process_split('Tr', train_names)
 process_split('Ts', test_names)
 
@@ -132,17 +132,17 @@ dataset_json = {
     "channel_names": {"0": "SEM"},
     "labels": {"background": 0, "PbI2": 1, "ABO3": 2},
     "numTraining": len(train_names),
-    "file_ending": ".png"  # nnUNet输出仍使用png格式
+    "file_ending": ".png"  # nnUNet output still uses PNG format
 }
 with open(f'{out_root}/dataset.json', 'w') as f:
     json.dump(dataset_json, f, indent=2)
 
-# ---------- 6. 移到 nnUNet 目录 ----------
+# ---------- 6. Move to nnUNet directory ----------
 if os.path.exists(nnunet_out):
     shutil.rmtree(nnunet_out)
 shutil.move(out_root, nnunet_out)
 
-print(f'\n✅ 数据集已拆好！Tr:{len(train_names)}  Ts:{len(test_names)}')
-print(f'nnUNet 目录：{nnunet_out}')
-print(f'可视化叠加图目录：{os.path.abspath(vis_dir)}')
-print(f'注意：测试集将在训练时由nnUNet框架自动从训练集中划分（默认5折交叉测试）')
+print(f'\n✅ Dataset split complete! Tr:{len(train_names)}  Ts:{len(test_names)}')
+print(f'nnUNet directory: {nnunet_out}')
+print(f'Overlay visualization directory: {os.path.abspath(vis_dir)}')
+print(f'Note: the test set will be automatically split from the training set by the nnUNet framework during training (default 5-fold cross-validation)')

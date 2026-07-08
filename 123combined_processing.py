@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 """
-钙钛矿 SEM 数据增强（14倍版本 = 1 原图 + 13 增强）
-仅增强训练集，输出直接写回原始 nnUNet 目录
+Perovskite SEM data augmentation (14x version = 1 original + 13 augmentations)
+Only the training set is augmented; output is written directly back to the original nnUNet directory.
 
-增强策略：
-  Aug01~Aug07：几何变换（同时作用于 SEM、YOLO通道、mask）
-  Aug08~Aug12：像素增强（仅作用于 SEM，YOLO通道和mask不变）
-  Aug13：复合增强（几何作用于三者 + 像素仅作用于SEM）
+Augmentation policy:
+  Aug01~Aug07: geometric transformations (applied to SEM, YOLO channel, and mask simultaneously)
+  Aug08~Aug12: pixel-level augmentations (applied to SEM only; YOLO channel and mask stay unchanged)
+  Aug13: combined augmentation (geometric on all three + pixel-level on SEM only)
 """
 import os
 import cv2
@@ -15,32 +15,32 @@ import albumentations as A
 import numpy as np
 import argparse
 
-# ---------- 1. 原始 nnUNet 路径 ----------
+# ---------- 1. Original nnUNet paths ----------
 TRAIN_IMG_DIR   = Path('U-Mamba/data/nnUNet_raw/Dataset123_Perovskite/imagesTr')
 TRAIN_LABEL_DIR = Path('U-Mamba/data/nnUNet_raw/Dataset123_Perovskite/labelsTr')
 
-# ---------- 2. 13 个增强等级定义 ----------
+# ---------- 2. Definition of 13 augmentation levels ----------
 
 def get_aug_transforms():
-    """返回 13 个增强变换定义"""
+    """Return the 13 augmentation transform definitions."""
     augs = []
 
-    # Aug01: 水平翻转（几何）
+    # Aug01: horizontal flip (geometric)
     augs.append(A.ReplayCompose([
         A.HorizontalFlip(p=1.0),
     ], additional_targets={'mask': 'mask', 'yolo': 'image'}))
 
-    # Aug02: 垂直翻转（几何）
+    # Aug02: vertical flip (geometric)
     augs.append(A.ReplayCompose([
         A.VerticalFlip(p=1.0),
     ], additional_targets={'mask': 'mask', 'yolo': 'image'}))
 
-    # Aug03: 旋转 90°（几何）
+    # Aug03: rotate 90° (geometric)
     augs.append(A.ReplayCompose([
         A.Rotate(limit=(90, 90), p=1.0, interpolation=cv2.INTER_NEAREST, border_mode=cv2.BORDER_CONSTANT),
     ], additional_targets={'mask': 'mask', 'yolo': 'image'}))
 
-    # Aug04: 旋转 180° 或 270°（几何）
+    # Aug04: rotate 180° or 270° (geometric)
     augs.append(A.ReplayCompose([
         A.OneOf([
             A.Rotate(limit=(180, 180), p=1.0, interpolation=cv2.INTER_NEAREST, border_mode=cv2.BORDER_CONSTANT),
@@ -48,7 +48,7 @@ def get_aug_transforms():
         ], p=1.0),
     ], additional_targets={'mask': 'mask', 'yolo': 'image'}))
 
-    # Aug05: 小角度旋转 ±5°~±15°（几何）
+    # Aug05: small-angle rotation ±5°~±15° (geometric)
     augs.append(A.ReplayCompose([
         A.OneOf([
             A.Rotate(limit=(-15, -5), p=1.0, interpolation=cv2.INTER_NEAREST, border_mode=cv2.BORDER_CONSTANT),
@@ -56,7 +56,7 @@ def get_aug_transforms():
         ], p=1.0),
     ], additional_targets={'mask': 'mask', 'yolo': 'image'}))
 
-    # Aug06: 平移 + 缩放（几何）
+    # Aug06: translation + scaling (geometric)
     augs.append(A.ReplayCompose([
         A.Affine(
             scale=(0.9, 1.1),
@@ -67,11 +67,11 @@ def get_aug_transforms():
         ),
     ], additional_targets={'mask': 'mask', 'yolo': 'image'}))
 
-    # Aug07: 随机裁剪再缩放（几何）
-    # 占位符，尺寸在 apply_augment 中动态传入
+    # Aug07: random crop and resize (geometric)
+    # Placeholder; size is passed dynamically in apply_augment
     augs.append({'type': 'RandomResizedCrop', 'scale': (0.80, 0.95), 'ratio': (0.9, 1.1)})
 
-    # Aug08: 亮度/对比度变化（像素，仅 SEM）
+    # Aug08: brightness/contrast change (pixel, SEM only)
     augs.append({
         'geo': None,
         'pixel': A.Compose([
@@ -79,7 +79,7 @@ def get_aug_transforms():
         ])
     })
 
-    # Aug09: Gamma 校正（像素，仅 SEM）
+    # Aug09: gamma correction (pixel, SEM only)
     augs.append({
         'geo': None,
         'pixel': A.Compose([
@@ -87,7 +87,7 @@ def get_aug_transforms():
         ])
     })
 
-    # Aug10: CLAHE（像素，仅 SEM）
+    # Aug10: CLAHE (pixel, SEM only)
     augs.append({
         'geo': None,
         'pixel': A.Compose([
@@ -95,7 +95,7 @@ def get_aug_transforms():
         ])
     })
 
-    # Aug11: 高斯噪声（像素，仅 SEM）
+    # Aug11: Gaussian noise (pixel, SEM only)
     augs.append({
         'geo': None,
         'pixel': A.Compose([
@@ -103,7 +103,7 @@ def get_aug_transforms():
         ])
     })
 
-    # Aug12: 轻微模糊/锐化（像素，仅 SEM）
+    # Aug12: slight blur/sharpen (pixel, SEM only)
     augs.append({
         'geo': None,
         'pixel': A.Compose([
@@ -114,7 +114,7 @@ def get_aug_transforms():
         ])
     })
 
-    # Aug13: 复合增强（几何作用于三者 + 像素仅作用于 SEM）
+    # Aug13: combined augmentation (geometric on all three + pixel-level on SEM only)
     augs.append({
         'geo': A.ReplayCompose([
             A.OneOf([
@@ -131,9 +131,9 @@ def get_aug_transforms():
     return augs
 
 
-# ---------- 3. 保存工具 ----------
+# ---------- 3. Saving utilities ----------
 def save_channel(img, stem, suffix, idx, output_dir, channel_idx):
-    """保存单通道图像"""
+    """Save a single-channel image."""
     if img.ndim == 3 and img.shape[2] == 1:
         img = img.squeeze(-1)
     if idx == 0:
@@ -144,7 +144,7 @@ def save_channel(img, stem, suffix, idx, output_dir, channel_idx):
 
 
 def save_triplet(sem_img, yolo_img, mask, stem, suffix, idx, img_dir, label_dir):
-    """保存 SEM、YOLO通道、mask 三元组"""
+    """Save the SEM, YOLO channel, and mask triplet."""
     save_channel(sem_img, stem, suffix, idx, img_dir, 0)
     save_channel(yolo_img, stem, suffix, idx, img_dir, 1)
     if idx == 0:
@@ -154,15 +154,15 @@ def save_triplet(sem_img, yolo_img, mask, stem, suffix, idx, img_dir, label_dir)
     cv2.imwrite(str(label_dir / lab_name), mask)
 
 
-# ---------- 4. 应用增强 ----------
+# ---------- 4. Apply augmentations ----------
 def apply_augment(sem_img, yolo_img, mask, aug, h, w):
     """
-    应用单个增强变换
-    几何变换同时作用于 sem_img、yolo_img、mask
-    像素变换仅作用于 sem_img
-    返回 (aug_sem, aug_yolo, aug_mask)
+    Apply a single augmentation transform.
+    Geometric transforms are applied to sem_img, yolo_img, and mask simultaneously.
+    Pixel transforms are applied to sem_img only.
+    Returns (aug_sem, aug_yolo, aug_mask).
     """
-    # Aug07 占位符：动态创建 RandomResizedCrop
+    # Aug07 placeholder: dynamically create RandomResizedCrop
     if isinstance(aug, dict) and aug.get('type') == 'RandomResizedCrop':
         geo = A.ReplayCompose([
             A.RandomResizedCrop(
@@ -183,7 +183,7 @@ def apply_augment(sem_img, yolo_img, mask, aug, h, w):
         geo = aug
         pixel = None
 
-    # 几何变换（同时作用于 SEM、YOLO、mask）
+    # Geometric transform (applied to SEM, YOLO, and mask simultaneously)
     if geo is not None:
         res = geo(image=sem_img, mask=mask, yolo=yolo_img)
         aug_sem = res['image']
@@ -194,7 +194,7 @@ def apply_augment(sem_img, yolo_img, mask, aug, h, w):
         aug_yolo = yolo_img.copy()
         aug_mask = mask.copy()
 
-    # 像素变换（仅作用于 SEM）
+    # Pixel transform (applied to SEM only)
     if pixel is not None:
         pixel_res = pixel(image=aug_sem)
         aug_sem = pixel_res['image']
@@ -202,9 +202,9 @@ def apply_augment(sem_img, yolo_img, mask, aug, h, w):
     return aug_sem, aug_yolo, aug_mask
 
 
-# ---------- 5. 训练数据增强 ----------
+# ---------- 5. Training data augmentation ----------
 def augment_training_data():
-    """处理训练数据：原图 + 13 增强（14倍）"""
+    """Process training data: original + 13 augmentations (14x)."""
     augs = get_aug_transforms()
     supported = ('.png', '.jpg', '.jpeg', '.bmp', '.tiff')
     count = 0
@@ -213,47 +213,47 @@ def augment_training_data():
         if img_path.suffix.lower() not in supported:
             continue
 
-        # 只处理原始 SEM 图（*_0000.png）
+        # Only process original SEM images (*_0000.png)
         if '_0001' in img_path.name:
             continue
 
-        # 对应 YOLO 辅助通道
+        # Corresponding YOLO auxiliary channel
         yolo_path = TRAIN_IMG_DIR / img_path.name.replace('_0000', '_0001')
         if not yolo_path.exists():
-            print(f'跳过 {img_path.name}，无对应 YOLO 通道')
+            print(f'Skipping {img_path.name}, no corresponding YOLO channel')
             continue
 
-        # 对应标签
+        # Corresponding label
         label_name = img_path.name.replace('_0000', '')
         label_path = TRAIN_LABEL_DIR / label_name
         if not label_path.exists():
-            print(f'跳过 {img_path.name}，无对应标签')
+            print(f'Skipping {img_path.name}, no corresponding label')
             continue
 
         sem = cv2.imread(str(img_path), cv2.IMREAD_GRAYSCALE)
         yolo = cv2.imread(str(yolo_path), cv2.IMREAD_GRAYSCALE)
         mask = cv2.imread(str(label_path), cv2.IMREAD_GRAYSCALE)
         if sem is None or yolo is None or mask is None:
-            print('无效文件:', img_path, yolo_path, label_path)
+            print('Invalid file:', img_path, yolo_path, label_path)
             continue
 
-        # 确保尺寸一致
+        # Ensure consistent sizes
         h, w = sem.shape[:2]
         if yolo.shape != (h, w) or mask.shape != (h, w):
-            print(f'尺寸不匹配，跳过: {img_path.name}')
+            print(f'Size mismatch, skipping: {img_path.name}')
             continue
 
-        # 为 albumentations 添加通道维度
+        # Add channel dimension for albumentations
         sem = sem[..., None]   # (H,W,1)
         yolo = yolo[..., None] # (H,W,1)
 
         stem = img_path.stem.split('_')[0]
         suffix = img_path.suffix
 
-        # 0 号：原图
+        # Index 0: original image
         save_triplet(sem.squeeze(-1), yolo.squeeze(-1), mask, stem, suffix, 0, TRAIN_IMG_DIR, TRAIN_LABEL_DIR)
 
-        # 1~13 号：增强
+        # Indices 1~13: augmented
         for i in range(1, 14):
             aug = augs[i - 1]
             aug_sem, aug_yolo, aug_mask = apply_augment(sem, yolo, mask, aug, h, w)
@@ -262,27 +262,27 @@ def augment_training_data():
         count += 1
 
     total = count * 14
-    print(f'✅ 训练集增强完成：{count} 张原图 → {total} 张 cases')
-    print('图像:', TRAIN_IMG_DIR.resolve())
-    print('标签:', TRAIN_LABEL_DIR.resolve())
+    print(f'✅ Training set augmentation complete: {count} original images → {total} cases')
+    print('Images:', TRAIN_IMG_DIR.resolve())
+    print('Labels:', TRAIN_LABEL_DIR.resolve())
 
 
-# ---------- 6. 入口 ----------
+# ---------- 6. Entry point ----------
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--mode', choices=['train', 'test', 'both'], default='train',
-                       help='处理模式：train=仅训练集(默认), test=仅测试集, both=训练集和测试集')
+                       help='Mode: train=training set only (default), test=test set only, both=training and test sets')
     args = parser.parse_args()
 
     if args.mode in ['train', 'both']:
-        print('开始处理训练集...')
+        print('Starting training set processing...')
         augment_training_data()
 
     if args.mode in ['test', 'both']:
-        print('测试集增强功能已禁用，如需增强测试集请单独处理')
+        print('Test set augmentation is disabled; handle test set augmentation separately if needed.')
 
     if args.mode == 'both':
-        print('✅ 训练数据处理完成！')
+        print('✅ Training data processing complete!')
 
 
 if __name__ == '__main__':
