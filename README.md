@@ -17,8 +17,6 @@ The AddTrain subset of the SEM image dataset used in this work is available on Z
 - **Zenodo Record**: https://doi.org/10.5281/zenodo.21263625
 - **DOI**: `10.5281/zenodo.21263625`
 
-This subset corresponds to the `raw/addtrain/` directory and contains annotated SEM images for prior-guided SEM image segmentation.
-
 ## Requirements
 
 For the custom trainer dependencies, see the original U-Mamba setup and install the required packages (e.g., `nnunetv2`, `monai`, `torch`).
