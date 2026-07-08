@@ -1,0 +1,38 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+.venv/
+venv/
+.env
+
+# Data and datasets
+raw/
+U-Mamba/data/
+*.zip
+*.tar.gz
+*.npy
+*.npz
+
+# Model weights and checkpoints
+*.pt
+*.pth
+*.ckpt
+*.h5
+*.onnx
+
+# Logs
+*.log
+
+# IDE
+.vscode/
+.idea/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Misc
+=1.2.0
+*.backup
