@@ -87,15 +87,3 @@ A complete list of all ~255 packages in the `umamba_pero` environment is provide
    ```
 
 
-## Citation
-
-If you use this code or dataset in your research, please cite:
-
-```bibtex
-@article{...,
-  title={Prior-Guided SEM Image Segmentation},
-  author={...},
-  journal={...},
-  year={...}
-}
-```
