@@ -19,7 +19,35 @@ The AddTrain subset of the SEM image dataset used in this work is available on Z
 
 ## Requirements
 
-For the custom trainer dependencies, see the original U-Mamba setup and install the required packages (e.g., `nnunetv2`, `monai`, `torch`).
+The code was developed and tested in the `umamba_pero` conda environment. Key dependencies include:
+
+| Package | Version |
+|---------|---------|
+| torch | 2.9.0+cu128 |
+| torchvision | 0.24.0+cu128 |
+| torchaudio | 2.9.0+cu128 |
+| pytorch-cuda | 11.8 |
+| nnunetv2 | 2.1.1 |
+| mamba-ssm | 2.2.6.post3 |
+| monai | 1.3.0 |
+| ultralytics | 8.4.53 |
+| numpy | 1.26.4 |
+| scipy | 1.15.3 |
+| scikit-image | 0.25.2 |
+| scikit-learn | 1.7.2 |
+| pandas | 2.3.3 |
+| matplotlib | 3.10.7 |
+| seaborn | 0.13.2 |
+| pillow | 12.0.0 |
+| opencv-python | 4.11.0.86 |
+| batchgenerators | 0.25.1 |
+| dynamic-network-architectures | 0.4.2 |
+| albumentations | 2.0.8 |
+| simpleitk | 2.5.2 |
+| nibabel | 5.3.2 |
+| tqdm | 4.65.2 |
+
+A complete list of all ~255 packages in the `umamba_pero` environment is provided in [`umamba_pero_packages.txt`](umamba_pero_packages.txt).
 
 ## Usage
 
