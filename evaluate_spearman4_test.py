@@ -1,23 +1,9 @@
 # -*- coding: utf-8 -*-
 """
-Evaluate generalisation performance of the Spearman-4 MQS on independent test sets
-(switchable dataset).
+Evaluate Spearman-4 MQS generalisation against measured PCE on independent test sets.
 
-Supported datasets are predefined in the DATASETS dictionary: anneal, zhangxin, lcy, dll.
-
-Usage:
-    # Default: evaluate anneal
-    python -B evaluate_spearman4_test.py
-
-    # Evaluate a specific dataset
-    python -B evaluate_spearman4_test.py zhangxin
-    python -B evaluate_spearman4_test.py lcy
-    python -B evaluate_spearman4_test.py dll
-
-Outputs:
-    - {dataset}/output/mqs_spearman4_test_evaluation.xlsx
-    - {dataset}/output/fig_mqs_vs_pce_test.png/pdf
-    - {dataset}/output/mqs_spearman4_test_evaluation.md
+Usage: python -B evaluate_spearman4_test.py [dataset_name]
+Default dataset name is "dataset1".
 """
 
 from __future__ import annotations
@@ -35,55 +21,15 @@ plt.rcParams["font.serif"] = ["Times New Roman"]
 plt.rcParams["axes.unicode_minus"] = False
 plt.rcParams["mathtext.fontset"] = "stix"
 
-# ---------------------------------------------------------------------------
-# Dataset configuration
-# ---------------------------------------------------------------------------
+# Dataset configuration (edit paths to match your local layout)
 DATASETS: dict[str, dict[str, str]] = {
-    "anneal": {
-        "excel_path": "D:/article_sem/anneal/sem_test.xlsx",
-        "output_dir": "D:/article_sem/anneal/output",
+    "dataset1": {
+        "excel_path": "D:/your_project/dataset1/test_metadata.xlsx",
+        "output_dir": "D:/your_project/dataset1/output",
     },
-    "zhangxin": {
-        "excel_path": "D:/article_sem/zhangxin/test.xlsx",
-        "output_dir": "D:/article_sem/zhangxin/output",
-    },
-    "lcy": {
-        "excel_path": "D:/article_sem/lcy/test.xlsx",
-        "output_dir": "D:/article_sem/lcy/output",
-    },
-    "dll": {
-        "excel_path": "D:/article_sem/dll/test.xlsx",
-        "output_dir": "D:/article_sem/dll/output",
-    },
-            "cly": {
-        "image_dir": "D:/article_sem/cly/raw",
-        "json_dir": "D:/article_sem/cly/json",
-        "excel_path": "D:/article_sem/cly/test.xlsx",
-        "output_dir": "D:/article_sem/cly/output",
-    },
-    "bandgap": {
-        "image_dir": "D:/article_sem/articletest6/Bandgap/raw",
-        "json_dir": "D:/article_sem/articletest6/Bandgap/json",
-        "excel_path": "D:/article_sem/articletest6/Bandgap/test.xlsx",
-        "output_dir": "D:/article_sem/articletest6/Bandgap/output",
-    },
-    "conventional_gap1": {
-        "image_dir": "D:/article_sem/articletest6/conventional_gap1/raw",
-        "json_dir": "D:/article_sem/articletest6/conventional_gap1/json",
-        "excel_path": "D:/article_sem/articletest6/conventional_gap1/test.xlsx",
-        "output_dir": "D:/article_sem/articletest6/conventional_gap1/output",
-    },
-    "conventional_gap2": {
-        "image_dir": "D:/article_sem/articletest6/conventional_gap2/raw",
-        "json_dir": "D:/article_sem/articletest6/conventional_gap2/json",
-        "excel_path": "D:/article_sem/articletest6/conventional_gap2/test.xlsx",
-        "output_dir": "D:/article_sem/articletest6/conventional_gap2/output",
-    },
-    "sn_pb": {
-        "image_dir": "D:/article_sem/articletest6/Sn-Pb/raw",
-        "json_dir": "D:/article_sem/articletest6/Sn-Pb/json",
-        "excel_path": "D:/article_sem/articletest6/Sn-Pb/test.xlsx",
-        "output_dir": "D:/article_sem/articletest6/Sn-Pb/output",
+    "dataset2": {
+        "excel_path": "D:/your_project/dataset2/test_metadata.xlsx",
+        "output_dir": "D:/your_project/dataset2/output",
     },
 }
 
@@ -93,9 +39,9 @@ MQS_SCORE_COL = "MQS"
 
 
 def get_dataset_config(dataset_name: str | None = None) -> tuple[str, str]:
-    """Return (test_excel_path, output_dir) for the requested dataset."""
+    """Return paths for the requested dataset."""
     if dataset_name is None:
-        dataset_name = "anneal"
+        dataset_name = "dataset1"
 
     if dataset_name not in DATASETS:
         available = ", ".join(DATASETS.keys())
@@ -105,15 +51,13 @@ def get_dataset_config(dataset_name: str | None = None) -> tuple[str, str]:
         )
 
     cfg = DATASETS[dataset_name]
-    mqs_path = os.path.join(cfg["output_dir"], "mqs_spearman4_results.xlsx")
+    mqs_path = os.path.join(cfg["output_dir"], "mqs_results.xlsx")
     return mqs_path, cfg["excel_path"], cfg["output_dir"]
 
 
-# ---------------------------------------------------------------------------
 # Helper functions
-# ---------------------------------------------------------------------------
 def load_and_merge(mqs_path: str, test_path: str) -> pd.DataFrame:
-    """Load MQS results and test PCE, merge by 'num'."""
+    """Load MQS results and PCE, merge by 'num'."""
     mqs_df = pd.read_excel(mqs_path)
     test_df = pd.read_excel(test_path)
 
@@ -122,9 +66,7 @@ def load_and_merge(mqs_path: str, test_path: str) -> pd.DataFrame:
     if "num" not in test_df.columns:
         raise KeyError(f"{test_path} is missing the 'num' column")
     if PCE_COL not in test_df.columns:
-        raise KeyError(
-            f"{test_path} is missing the '{PCE_COL}' column. Please add the measured PCE column before running this script."
-        )
+        raise KeyError(f"{test_path} is missing the '{PCE_COL}' column.")
 
     mqs_df["num"] = mqs_df["num"].astype(str)
     test_df["num"] = test_df["num"].astype(str)
@@ -139,13 +81,13 @@ def load_and_merge(mqs_path: str, test_path: str) -> pd.DataFrame:
     merged = merged.dropna(subset=[PCE_COL, MQS_SCORE_COL])
 
     if len(merged) == 0:
-        raise ValueError("No valid samples after merging. Please check that 'num' values match.")
+        raise ValueError("No valid samples after merging; check 'num' values.")
 
     return merged
 
 
 def compute_metrics(df: pd.DataFrame) -> dict:
-    """Compute correlation and regression metrics for MQS vs PCE."""
+    """Compute correlation and regression metrics."""
     mqs = df[MQS_SCORE_COL].values
     pce = df[PCE_COL].values
 
@@ -180,7 +122,7 @@ def compute_metrics(df: pd.DataFrame) -> dict:
 
 
 def plot_mqs_vs_pce(df: pd.DataFrame, output_dir: str, dataset_name: str) -> None:
-    """Draw scatter plot of MQS vs PCE with regression line."""
+    """Scatter plot of MQS vs PCE with regression line."""
     mqs = df[MQS_SCORE_COL].values
     pce = df[PCE_COL].values
 
@@ -213,30 +155,21 @@ def plot_mqs_vs_pce(df: pd.DataFrame, output_dir: str, dataset_name: str) -> Non
 def write_report(
     df: pd.DataFrame, metrics: dict, output_dir: str, dataset_name: str
 ) -> None:
-    """Write evaluation report to markdown."""
+    """Write evaluation report."""
     report_path = os.path.join(output_dir, "mqs_spearman4_test_evaluation.md")
     with open(report_path, "w", encoding="utf-8") as f:
-        f.write(f"# Spearman-4 MQS {dataset_name} Test Set Generalisation Evaluation\n\n")
-        f.write(f"**Number of test samples:** {metrics['N']}\n\n")
+        f.write(f"# Spearman-4 MQS {dataset_name} Test Set Evaluation\n\n")
+        f.write(f"**Samples:** {metrics['N']}\n\n")
         f.write("## Correlation metrics\n\n")
-        f.write("| Metric | Value | p-value | Interpretation |\n")
-        f.write("| --- | --- | --- | --- |\n")
-        f.write(
-            f"| Spearman rho | {metrics['Spearman_rho']:.4f} | {metrics['Spearman_p']:.4g} | "
-            f"{'significant' if metrics['Spearman_p'] < 0.05 else 'not significant'} |\n"
-        )
-        f.write(
-            f"| Pearson r | {metrics['Pearson_r']:.4f} | {metrics['Pearson_p']:.4g} | "
-            f"Linear correlation strength |\n"
-        )
-        f.write(
-            f"| Kendall tau | {metrics['Kendall_tau']:.4f} | {metrics['Kendall_p']:.4g} | "
-            f"Ranking concordance |\n"
-        )
-        f.write(f"| R2 | {metrics['R2']:.4f} | - | Proportion of variance explained by linear regression |\n")
-        f.write(f"| MAE | {metrics['MAE']:.4f} | - | Mean absolute error (%) |\n\n")
+        f.write("| Metric | Value | p-value |\n")
+        f.write("| --- | --- | --- |\n")
+        f.write(f"| Spearman rho | {metrics['Spearman_rho']:.4f} | {metrics['Spearman_p']:.4g} |\n")
+        f.write(f"| Pearson r | {metrics['Pearson_r']:.4f} | {metrics['Pearson_p']:.4g} |\n")
+        f.write(f"| Kendall tau | {metrics['Kendall_tau']:.4f} | {metrics['Kendall_p']:.4g} |\n")
+        f.write(f"| R2 | {metrics['R2']:.4f} | - |\n")
+        f.write(f"| MAE | {metrics['MAE']:.4f} | - |\n\n")
 
-        f.write("## Sample ranking comparison (1 = highest)\n\n")
+        f.write("## Sample ranking (1 = highest)\n\n")
         f.write("| num | MQS | MQS_rank | PCE | PCE_rank |\n")
         f.write("| --- | --- | --- | --- | --- |\n")
         for _, row in df.iterrows():
@@ -247,27 +180,14 @@ def write_report(
         f.write("\n")
 
         f.write("## PCE statistics\n\n")
-        f.write(f"- PCE mean = {metrics['PCE_mean']:.2f}%\n")
-        f.write(f"- PCE std = {metrics['PCE_std']:.2f}%\n\n")
-
-        if metrics["Spearman_p"] < 0.05 and metrics["Spearman_rho"] > 0:
-            f.write(
-                "**Conclusion:** The Spearman correlation between MQS and PCE on the test set is "
-                "significantly positive, indicating that the Spearman-4 MQS generalises well.\n"
-            )
-        else:
-            f.write(
-                "**Conclusion:** The correlation between MQS and PCE on the test set is not significant. "
-                "Please check data quality or increase the number of independent test samples.\n"
-            )
+        f.write(f"- mean = {metrics['PCE_mean']:.2f}%\n")
+        f.write(f"- std = {metrics['PCE_std']:.2f}%\n")
     print(f"Report saved: {report_path}")
 
 
-# ---------------------------------------------------------------------------
 # Main entry point
-# ---------------------------------------------------------------------------
 def main():
-    dataset_name = sys.argv[1] if len(sys.argv) > 1 else "anneal"
+    dataset_name = sys.argv[1] if len(sys.argv) > 1 else "dataset1"
     mqs_path, test_path, output_dir = get_dataset_config(dataset_name)
 
     os.makedirs(output_dir, exist_ok=True)
@@ -279,7 +199,7 @@ def main():
     df = load_and_merge(mqs_path, test_path)
     metrics = compute_metrics(df)
 
-    # Add ranks for easy inspection
+    # Add ranks
     df["MQS_rank"] = df[MQS_SCORE_COL].rank(ascending=False, method="min").astype(int)
     df["PCE_rank"] = df[PCE_COL].rank(ascending=False, method="min").astype(int)
 
@@ -296,9 +216,9 @@ def main():
     print(df[rank_cols].to_string(index=False))
 
     if metrics["Spearman_p"] < 0.05 and metrics["Spearman_rho"] > 0:
-        print("\n[OK] MQS and PCE are significantly positively correlated on the test set; Spearman-4 MQS generalises well.")
+        print("\n[OK] MQS and PCE are significantly correlated on the test set.")
     else:
-        print("\n[NOTE] The MQS-PCE correlation on the test set is not significant; please check the data or add more samples.")
+        print("\n[NOTE] MQS-PCE correlation not significant.")
 
     # Save merged data
     out_excel = os.path.join(output_dir, "mqs_spearman4_test_evaluation.xlsx")

@@ -1,9 +1,7 @@
 #!/usr/bin/env python3
 """
-One-click conversion of perovskite SEM grayscale images + 8-bit grayscale masks into nnUNet v2 standard format,
-and generate overlay visualizations (red=defect) for visual inspection of coverage.
-python convert2nnunet_vis.py
-Adds a test set for final model evaluation.
+Convert perovskite SEM grayscale images and masks into nnUNet v2 format.
+Generates overlay visualizations and a held-out test set.
 """
 import os
 import shutil
@@ -14,9 +12,9 @@ from tqdm import tqdm
 from PIL import Image
 
 # ========== User configuration ==========
-raw_img    = '/home/chen/seg6/raw/addtrainimage'          # raw grayscale images
-raw_mask   = '/home/chen/seg6/raw/addtrain_mask_only_gray'  # 0/120/180/255 grayscale mask
-out_root   = '/home/chen/seg6/U-Mamba/data/nnUNet_raw/dataset'                              # temporary directory
+raw_img    = '/path/to/raw/images'
+raw_mask   = '/path/to/raw/masks'
+out_root   = '/path/to/U-Mamba/data/nnUNet_raw/dataset'
 task_id    = 123
 task_name  = f'Dataset{task_id}_Perovskite'
 nnunet_out = os.path.join(os.path.dirname(out_root), task_name)
@@ -27,7 +25,7 @@ vis_dir = 'vis'
 os.makedirs(vis_dir, exist_ok=True)
 
 # 1. Build nnUNet directory structure (Tr=training set, Ts=test set)
-# Note: the validation set is automatically split from the training set by nnUNet during training; no need to define it here
+# Validation split is handled by nnUNet during training
 for split in ['Tr', 'Ts']:
     os.makedirs(f'{out_root}/images{split}', exist_ok=True)
     os.makedirs(f'{out_root}/labels{split}', exist_ok=True)
@@ -46,7 +44,7 @@ train_names = [n for n in names if not any(t in n for t in test_names)]
 test_names  = [n for n in names if     any(t in n for t in test_names)]
 print(f'Training set: {len(train_names)} images, Test set: {len(test_names)} images')
 
-# ---------- 3. Processing function (reuses your existing augmentation + visualization) ----------
+# ---------- 3. Processing function ----------
 def read_image_with_pil(path):
     """Read image with PIL; supports multiple formats."""
     try:
@@ -82,7 +80,6 @@ def process_split(split, name_list):
         target_w, target_h = 1024, 768
         gray = cv2.resize(gray, (target_w, target_h), interpolation=cv2.INTER_LINEAR)
 
-        # Use the original image directly, no augmentation
         gray_enh = gray
 
         # 3.2 mask: grayscale values -> contiguous class IDs
@@ -145,4 +142,4 @@ shutil.move(out_root, nnunet_out)
 print(f'\n✅ Dataset split complete! Tr:{len(train_names)}  Ts:{len(test_names)}')
 print(f'nnUNet directory: {nnunet_out}')
 print(f'Overlay visualization directory: {os.path.abspath(vis_dir)}')
-print(f'Note: the test set will be automatically split from the training set by the nnUNet framework during training (default 5-fold cross-validation)')
+print('nnUNet performs 5-fold cross-validation on the training set internally.')

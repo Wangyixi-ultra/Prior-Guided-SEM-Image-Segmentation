@@ -1,36 +1,10 @@
 # -*- coding: utf-8 -*-
 """
-Spearman 4-parameter MQS training and validation.
+Train and validate the Spearman-4 Morphology Quality Score (MQS).
 
-This script follows the same weighting logic as compare_spearman_6vs3.py
-for the selected four-feature combination:
+The composite score is a weighted sum of z-score-standardised features:
 
-    ABX3_grain_size_mean_actual_area_um2       (+)
-    ABX3_gray_cv                               (-)
-    PbI2_large_particle_area_um2               (-)
-    PbI2_ABX3_associated_fraction              (+)
-
-Differences from the generic mqs.py module:
-    - Uses StandardScaler (z-score) per compare_spearman_6vs3.py.
-    - Uses absolute Spearman ρ as raw weight and normalises by sum(|ρ|).
-    - Validation is 5x5 repeated K-fold CV, identical to compare_spearman_6vs3.py.
-    - Additional group-aware CV (GroupKFold / leave-one-group-out) is performed
-      when group/study labels can be inferred from the 'name' column.
-
-Usage:
-    python mqs_spearman4.py
-
-Outputs are written to D:/article_sem/mqs_spearman4_results/:
-    - spearman4_model.pkl                      trained model (load in test script)
-    - spearman4_model_summary.csv              human-readable weights
-    - spearman4_mqs_results.xlsx               training data + MQS scores
-    - fig_spearman4_mqs_scatter.png/pdf
-    - fig_spearman4_weights.png/pdf
-    - spearman4_mqs_report.md
-    - fig_spearman4_group_cv_scatter.png/pdf   group-aware CV comparison
-    - spearman4_group_cv_report.md             group-aware CV report
-    - groupkfold_cv_fold_summary.xlsx          GroupKFold fold details
-    - logo_cv_fold_summary.xlsx                leave-one-group-out fold details
+    MQS = Σ (|ρ_i| / Σ|ρ_j|) * sign(ρ_i) * z_i
 """
 
 from __future__ import annotations
@@ -62,14 +36,12 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# ---------------------------------------------------------------------------
 # Configuration
-# ---------------------------------------------------------------------------
-TRAIN_PATH: str = r"D:/article_sem/sem_summary_new.xlsx"
+TRAIN_PATH: str = r"D:/your_project/train_features.xlsx"
 PCE_COL: str = "JV_reverse_scan_PCE"
-OUTPUT_DIR: str = r"D:/article_sem/mqs_spearman4_results"
+OUTPUT_DIR: str = r"D:/your_project/mqs_results"
 
-# The four Spearman-MQS descriptors selected in compare_spearman_6vs3.py
+# Four Spearman-selected descriptors
 SPEARMAN4_FEATURES: list[str] = [
     "ABX3_grain_size_mean_actual_area_um2",
     "ABX3_gray_cv",
@@ -81,21 +53,15 @@ N_SPLITS: int = 5
 N_REPEATS: int = 5
 RANDOM_STATE: int = 42
 
-# Group-aware CV settings ----------------------------------------------------
-# If None, the script attempts to derive study/group labels from the 'name'
-# column by taking the leading numeric token before the first hyphen
-# (e.g. "11-1" -> group "11"). Set to a column name (e.g. "study") to
-# override this auto-detection.
+# Group-aware CV settings
 GROUP_COL: str | None = None
-N_GROUP_SPLITS: int = 5  # for GroupKFold outer loop
+N_GROUP_SPLITS: int = 5
 
 
-# ---------------------------------------------------------------------------
 # Model dataclass
-# ---------------------------------------------------------------------------
 @dataclass
 class Spearman4MQSModel:
-    """Trained Spearman-4 MQS model."""
+    """Trained Spearman-4 MQS model state."""
 
     features: list[str]
     weights: dict[str, float]          # raw absolute Spearman ρ
@@ -106,22 +72,20 @@ class Spearman4MQSModel:
     rho_dict: dict[str, tuple[float, float]]
 
     def normalised_weight(self, feature: str) -> float:
-        """Return the weight normalised so that sum(|w|) = 1."""
+        """Normalised absolute Spearman ρ weight."""
         total = sum(abs(w) for w in self.weights.values())
         if total == 0:
             return 0.0
         return abs(self.weights[feature]) / total
 
 
-# ---------------------------------------------------------------------------
 # Core functions
-# ---------------------------------------------------------------------------
 def _get_spearman_weights(
     df: pd.DataFrame,
     features: list[str],
     pce_col: str = PCE_COL,
 ) -> tuple[dict[str, float], dict[str, int], dict[str, tuple[float, float]]]:
-    """Compute Spearman weights, directions and raw (ρ, p) for each feature."""
+    """Compute Spearman weights, directions and raw (ρ, p)."""
     weights: dict[str, float] = {}
     directions: dict[str, int] = {}
     rho_dict: dict[str, tuple[float, float]] = {}
@@ -142,14 +106,7 @@ def build_mqs_spearman4_model(
     features: list[str] | None = None,
     pce_col: str = PCE_COL,
 ) -> Spearman4MQSModel:
-    """Build a Spearman-4 MQS model from training data.
-
-    The composite score is a weighted sum of z-score-standardised features:
-
-        MQS = Σ (|ρ_i| / Σ|ρ_j|) * sign(ρ_i) * z_i
-
-    where z_i is the StandardScaler-transformed value of feature i.
-    """
+    """Build a Spearman-4 MQS model from training data."""
     features = features if features is not None else SPEARMAN4_FEATURES
     missing = [c for c in features + [pce_col] if c not in df_train.columns]
     if missing:
@@ -180,7 +137,7 @@ def _compute_mqs(
     directions: dict[str, int],
     scaler: StandardScaler,
 ) -> np.ndarray:
-    """Compute raw MQS scores for *df*."""
+    """Compute raw MQS scores."""
     Xs = scaler.transform(df[features].values)
     total_w = sum(abs(weights[f]) for f in features)
     if total_w == 0:
@@ -197,7 +154,7 @@ def apply_mqs_spearman4(
     df: pd.DataFrame,
     model: Spearman4MQSModel,
 ) -> pd.Series:
-    """Apply a trained Spearman-4 MQS model to new data."""
+    """Apply a trained Spearman-4 MQS model."""
     scores = _compute_mqs(
         df,
         model.features,
@@ -212,7 +169,7 @@ def normalize_mqs_spearman4(
     scores: pd.Series,
     model: Spearman4MQSModel,
 ) -> pd.Series:
-    """Normalise raw MQS scores to a 0-100 scale using the training range."""
+    """Scale raw MQS scores to 0-100 using the training range."""
     import mqs
 
     return mqs.normalize_mqs(scores, model.train_min, model.train_max)
@@ -226,12 +183,7 @@ def evaluate_repeated_kfold_cv(
     n_repeats: int = N_REPEATS,
     random_state: int = RANDOM_STATE,
 ) -> tuple[float, float, np.ndarray]:
-    """5x5 repeated K-fold CV, exactly as in compare_spearman_6vs3.py.
-
-    Returns
-    -------
-    rho, pval, oof_scores
-    """
+    """5x5 repeated K-fold CV."""
     features = features if features is not None else SPEARMAN4_FEATURES
     y = df_train[pce_col].values
     rkf = RepeatedKFold(
@@ -253,17 +205,10 @@ def evaluate_repeated_kfold_cv(
     return float(rho), float(pval), oof_scores
 
 
-# ---------------------------------------------------------------------------
 # Group-aware CV helpers
-# ---------------------------------------------------------------------------
 
 def _derive_groups(df_train: pd.DataFrame, group_col: str | None = GROUP_COL) -> np.ndarray | None:
-    """Derive group/study labels for GroupKFold / LOGO validation.
-
-    If *group_col* is provided and exists in the DataFrame, it is used.
-    Otherwise, if a 'name' column exists, the leading numeric token before the
-    first hyphen is used as the group id (e.g. "11-1" -> "11").
-    """
+    """Derive group labels for GroupKFold / LOGO validation."""
     if group_col is not None and group_col in df_train.columns:
         groups = df_train[group_col].astype(str).values
         n_groups = len(np.unique(groups))
@@ -290,12 +235,7 @@ def evaluate_group_kfold_cv(
     pce_col: str = PCE_COL,
     n_splits: int = N_GROUP_SPLITS,
 ) -> tuple[float, float, np.ndarray, pd.DataFrame]:
-    """GroupKFold CV: all samples from the same study stay in train or test.
-
-    Returns
-    -------
-    rho, pval, oof_scores, fold_summary
-    """
+    """GroupKFold CV: keep samples from the same study together."""
     features = features if features is not None else SPEARMAN4_FEATURES
     y = df_train[pce_col].values
     n_groups = len(np.unique(groups))
@@ -344,12 +284,7 @@ def evaluate_leave_one_group_out_cv(
     features: list[str] | None = None,
     pce_col: str = PCE_COL,
 ) -> tuple[float, float, np.ndarray, pd.DataFrame]:
-    """Leave-one-group-out CV: each unique group is held out once.
-
-    Returns
-    -------
-    rho, pval, oof_scores, fold_summary
-    """
+    """Leave-one-group-out CV."""
     features = features if features is not None else SPEARMAN4_FEATURES
     y = df_train[pce_col].values
     logo = LeaveOneGroupOut()
@@ -385,11 +320,9 @@ def evaluate_leave_one_group_out_cv(
     return float(rho), float(pval), oof_scores, pd.DataFrame(fold_records)
 
 
-# ---------------------------------------------------------------------------
 # I/O
-# ---------------------------------------------------------------------------
 def save_model(model: Spearman4MQSModel, output_dir: str) -> None:
-    """Pickle the trained model state and write a CSV summary."""
+    """Save model state and CSV summary."""
     os.makedirs(output_dir, exist_ok=True)
 
     pkl_path = os.path.join(output_dir, "spearman4_model.pkl")
@@ -435,9 +368,7 @@ def load_model(output_dir: str) -> Spearman4MQSModel:
     return model
 
 
-# ---------------------------------------------------------------------------
 # Figures and report
-# ---------------------------------------------------------------------------
 def _plot_results(
     result_df: pd.DataFrame,
     model: Spearman4MQSModel,
@@ -445,7 +376,7 @@ def _plot_results(
     cv_rho: float,
     output_dir: str,
 ) -> None:
-    """Generate publication-ready figures."""
+    """Generate validation figures."""
     sns.set_style("whitegrid")
 
     # 1. Fitted vs CV scatter
@@ -531,7 +462,7 @@ def _write_report(
     cv_rho: float,
     cv_pval: float,
 ) -> None:
-    """Write a markdown validation report."""
+    """Write markdown validation report."""
     report_path = os.path.join(output_dir, "spearman4_mqs_report.md")
     with open(report_path, "w", encoding="utf-8") as f:
         f.write("# Spearman-4 Morphology Quality Index (MQS) Report\n\n")
@@ -559,35 +490,13 @@ def _write_report(
         f.write("```\n\n")
 
         f.write("## Validation results\n\n")
-        f.write(
-            f"- **Fitted Spearman-4 MQS-PCE Spearman ρ:** {fitted_rho:.4f} "
-            f"(p = {fitted_pval:.4g})\n"
-        )
-        f.write(
-            f"- **5x5 repeated K-fold CV Spearman-4 MQS-PCE Spearman ρ:** {cv_rho:.4f} "
-            f"(p = {cv_pval:.4g})\n\n"
-        )
-        f.write(
-            "> Note: The fitted correlation is optimistically biased; the repeated "
-            "K-fold CV estimate is the same validation protocol used in "
-            "`compare_spearman_6vs3.py`.\n\n"
-        )
-
-        if cv_pval < 0.05:
-            f.write(
-                "The repeated K-fold CV correlation is statistically significant, "
-                "suggesting the Spearman-4 MQS has predictive value for PCE.\n"
-            )
-        else:
-            f.write(
-                "The repeated K-fold CV correlation is **not** statistically "
-                "significant. Interpret the relationship as exploratory.\n"
-            )
+        f.write(f"- Fitted ρ = {fitted_rho:.4f} (p = {fitted_pval:.4g})\n")
+        f.write(f"- 5×5 repeated K-fold CV ρ = {cv_rho:.4f} (p = {cv_pval:.4g})\n")
     logger.info(f"Report saved: {report_path}")
 
 
 def _df_to_markdown(df: pd.DataFrame, floatfmt: str = ".4f") -> str:
-    """Convert a DataFrame to a Markdown table without external dependencies."""
+    """Convert a DataFrame to a Markdown table."""
     lines: list[str] = []
     headers = [str(c) for c in df.columns]
     lines.append("| " + " | ".join(headers) + " |")
@@ -614,7 +523,7 @@ def _plot_group_cv_results(
     logo_rho: float | None,
     output_dir: str,
 ) -> None:
-    """Generate scatter plots comparing fitted, repeated K-fold, GroupKFold and LOGO."""
+    """Scatter plots comparing CV protocols."""
     sns.set_style("whitegrid")
     y = result_df["PCE"].values
 
@@ -665,57 +574,26 @@ def _write_group_cv_report(
     logo_fold_df: pd.DataFrame | None,
     groups: np.ndarray,
 ) -> None:
-    """Write a supplementary report for group-aware / study-aware CV."""
+    """Write group-aware CV report."""
     report_path = os.path.join(output_dir, "spearman4_group_cv_report.md")
     unique_groups, group_counts = np.unique(groups, return_counts=True)
 
     with open(report_path, "w", encoding="utf-8") as f:
         f.write("# Spearman-4 MQS Group-Aware Cross-Validation Report\n\n")
-        f.write(
-            "This supplementary report compares the standard repeated K-fold estimate "
-            "with group-aware alternatives. Group-aware CV ensures that all samples "
-            "belonging to the same study/batch are either in the training set or the "
-            "test set, never both. This gives a more conservative estimate of "
-            "generalisation when the 44 samples are not fully independent.\n\n"
-        )
-
-        f.write("## Group/study definition\n\n")
         f.write(f"- Total samples: {len(groups)}\n")
-        f.write(f"- Number of groups/studies: {len(unique_groups)}\n")
-        f.write(f"- Group size distribution: min={group_counts.min()}, "
-                f"median={int(np.median(group_counts))}, max={group_counts.max()}\n\n")
+        f.write(f"- Groups: {len(unique_groups)}\n")
+        f.write(f"- Group sizes: min={group_counts.min()}, median={int(np.median(group_counts))}, max={group_counts.max()}\n\n")
 
         f.write("## Validation summary\n\n")
-        f.write("| Protocol | Spearman ρ | p-value | Notes |\n")
-        f.write("| --- | --- | --- | --- |\n")
-        f.write(f"| Fitted (all data) | {fitted_rho:+.4f} | {fitted_pval:.4g} | Optimistically biased |\n")
-        f.write(f"| 5×5 repeated K-fold | {cv_rho:+.4f} | {cv_pval:.4g} | Samples from same group may be split |\n")
+        f.write("| Protocol | Spearman ρ | p-value |\n")
+        f.write("| --- | --- | --- |\n")
+        f.write(f"| Fitted | {fitted_rho:+.4f} | {fitted_pval:.4g} |\n")
+        f.write(f"| 5×5 repeated K-fold | {cv_rho:+.4f} | {cv_pval:.4g} |\n")
         if group_rho is not None:
-            f.write(f"| {N_GROUP_SPLITS}-fold GroupKFold | {group_rho:+.4f} | {group_pval:.4g} | Groups kept intact |\n")
+            f.write(f"| {N_GROUP_SPLITS}-fold GroupKFold | {group_rho:+.4f} | {group_pval:.4g} |\n")
         if logo_rho is not None:
-            f.write(f"| Leave-one-group-out | {logo_rho:+.4f} | {logo_pval:.4g} | Most conservative; high variance when group size = 1 |\n")
+            f.write(f"| Leave-one-group-out | {logo_rho:+.4f} | {logo_pval:.4g} |\n")
         f.write("\n")
-
-        f.write("## Important caveats\n\n")
-        f.write(
-            "1. **Small-sample variability:** With only 44 samples and several "
-            "single-sample groups, leave-one-group-out estimates can be very noisy. "
-            "Use the GroupKFold estimate as the primary conservative metric and "
-            "treat LOGO as a sensitivity check.\n"
-        )
-        f.write(
-            "2. **Feature-set selection bias:** The four descriptors used here were "
-            "pre-selected in `compare_spearman_6vs3.py`. The group-aware CV above "
-            "estimates the performance of this **fixed** feature set. It does not "
-            "fully correct for the fact that descriptor selection itself was guided "
-            "by the same dataset. A fully nested CV (feature selection inside the "
-            "inner loop) would be required for that.\n"
-        )
-        f.write(
-            "3. **Reporting:** When reporting MQS-PCE correlations in the manuscript, "
-            "report both the repeated K-fold and the group-aware estimates, and "
-            "clearly state the validation protocol.\n\n"
-        )
 
         if group_fold_df is not None:
             f.write(f"## {N_GROUP_SPLITS}-fold GroupKFold fold details\n\n")
@@ -730,16 +608,14 @@ def _write_group_cv_report(
     logger.info(f"Group-aware CV report saved: {report_path}")
 
 
-# ---------------------------------------------------------------------------
 # Main entry point
-# ---------------------------------------------------------------------------
 def run_spearman4_validation(
     train_path: str = TRAIN_PATH,
     output_dir: str = OUTPUT_DIR,
     pce_col: str = PCE_COL,
     features: list[str] | None = None,
 ) -> dict:
-    """Run full Spearman-4 MQS validation and save outputs."""
+    """Run full Spearman-4 MQS validation."""
     os.makedirs(output_dir, exist_ok=True)
     features = features if features is not None else SPEARMAN4_FEATURES
 
@@ -748,10 +624,8 @@ def run_spearman4_validation(
         f"Spearman-4 MQS training data: n={len(df_train)}, features={features}"
     )
 
-    # Build model on all data
     model = build_mqs_spearman4_model(df_train, features=features, pce_col=pce_col)
 
-    # Fitted scores
     scores_raw = apply_mqs_spearman4(df_train, model)
     scores_norm = normalize_mqs_spearman4(scores_raw, model)
     fitted_rho, fitted_pval = spearmanr(scores_raw.values, df_train[pce_col].values)
@@ -759,8 +633,7 @@ def run_spearman4_validation(
         f"Fitted Spearman-4 MQS-PCE: rho={fitted_rho:.3f}, p={fitted_pval:.4g}"
     )
 
-    # Repeated K-fold CV (same as compare_spearman_6vs3.py)
-    logger.info("Running 5x5 repeated K-fold CV for Spearman-4 MQS...")
+    logger.info("Running 5x5 repeated K-fold CV...")
     cv_rho, cv_pval, cv_raw_arr = evaluate_repeated_kfold_cv(
         df_train,
         features=features,
@@ -772,7 +645,6 @@ def run_spearman4_validation(
         f"5x5 repeated K-fold CV Spearman-4 MQS-PCE: rho={cv_rho:.3f}, p={cv_pval:.4g}"
     )
 
-    # Group-aware CV (GroupKFold + leave-one-group-out)
     groups = _derive_groups(df_train)
     group_rho = group_pval = logo_rho = logo_pval = None
     group_oof = logo_oof = None
@@ -801,7 +673,6 @@ def run_spearman4_validation(
             f"Leave-one-group-out CV Spearman-4 MQS-PCE: rho={logo_rho:.3f}, p={logo_pval:.4g}"
         )
 
-    # Print model summary
     logger.info("Spearman-4 MQS weights and directions:")
     for f in model.features:
         r, _p = model.rho_dict[f]
@@ -809,7 +680,6 @@ def run_spearman4_validation(
         d = "+" if model.directions[f] > 0 else "-"
         logger.info(f"  -> {f}: |ρ|={abs(r):.4f}, normalised_weight={w:.4f}, direction={d}")
 
-    # Assemble results
     result_df = df_train.copy()
     result_df["Spearman4_MQS_raw"] = scores_raw
     result_df["Spearman4_MQS_score"] = scores_norm
@@ -826,7 +696,6 @@ def run_spearman4_validation(
         )
     result_df["PCE"] = df_train[pce_col]
 
-    # Save model and tables
     save_model(model, output_dir)
     result_df.to_excel(
         os.path.join(output_dir, "spearman4_mqs_results.xlsx"),
@@ -834,7 +703,6 @@ def run_spearman4_validation(
         engine="openpyxl",
     )
 
-    # Figures and report
     _plot_results(result_df, model, fitted_rho, cv_rho, output_dir)
     _write_report(
         output_dir,
@@ -846,7 +714,6 @@ def run_spearman4_validation(
     )
 
     if groups is not None:
-        # Save fold-level summaries
         group_fold_df.to_excel(
             os.path.join(output_dir, "groupkfold_cv_fold_summary.xlsx"),
             index=False,
