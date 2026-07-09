@@ -1,33 +1,7 @@
 #!/usr/bin/env python3
 """
-Generate YOLO auxiliary channel (Channel 1) for nnUNet dual-channel data
-=================================================================
-Compatible with latest detection models such as YOLOv8 / YOLO11 / YOLO12 / YOLO26
-Optimizations:
-  1. Command-line argument based, no hard-coded paths
-  2. Batch + Stream inference, 3~5x speed improvement
-  3. Gaussian blob and confidence weighting, preserving spatial uncertainty information
-  4. More robust class mapping (automatic PbI2/ABO3 recognition)
-  5. Flexible selection of training/test sets
-
-Usage:
-  # Basic usage (process imagesTr + imagesTs)
-  python add_yolo_info_features_v2.py \
-      --weights perovskite_grains_opt/yolo26x_cbam_detect/weights/best.pt \
-      --dataset U-Mamba/data/nnUNet_raw/Dataset123_Perovskite
-
-  # Process only test set, use gaussian mode + confidence weighting
-  python add_yolo_info_features_v2.py \
-      --weights yolo12x_cbam_detect/weights/best.pt \
-      --dataset U-Mamba/data/nnUNet_raw/Dataset122_Perovskite \
-      --splits Ts \
-      --mode gaussian --use-confidence
-
-  # Batch size and device control
-  python add_yolo_info_features_v2.py \
-      --weights best.pt \
-      --dataset Dataset123_Perovskite \
-      --batch-size 32 --device 0
+Generate YOLO auxiliary channel (Channel 1) for nnUNet dual-channel data.
+Supports YOLOv8 / YOLO11 / YOLO12 / YOLO26 detection models.
 """
 
 import os
@@ -42,7 +16,7 @@ from tqdm import tqdm
 
 
 def get_class_mapping(model) -> dict:
-    """Dynamically extract class IDs for PbI2 / ABO3 from the YOLO model"""
+    """Extract PbI2 / ABO3 class IDs from the YOLO model."""
     names = model.names
     mapping = {}
     for cls_id, cls_name in names.items():
@@ -57,32 +31,18 @@ def get_class_mapping(model) -> dict:
 def create_mask_from_result(result, h: int, w: int, class_map: dict,
                             mode: str = "gaussian", sigma: float = 4.0,
                             use_confidence: bool = False) -> np.ndarray:
-    """
-    Convert a single YOLO detection result into an auxiliary channel mask
-
-    Args:
-        result: ultralytics Results object
-        h, w: output image size
-        class_map: {"pbi2": id, "abo3": id}
-        mode: "gaussian" (gaussian blob) or "dot" (hard dot)
-        sigma: gaussian standard deviation (or base dot radius)
-        use_confidence: whether to weight intensity by detection confidence
-    Returns:
-        uint8 single-channel mask [H, W]
-    """
+    """Convert a YOLO detection result into a single-channel auxiliary mask."""
     mask = np.zeros((h, w), dtype=np.float32)
 
     if result.boxes is None or len(result.boxes) == 0:
         return mask.astype(np.uint8)
 
-    # Base intensity per class
     base_intensity = {
         class_map.get("pbi2", 0): 100,
         class_map.get("abo3", 1): 200,
     }
 
     if mode == "gaussian":
-        # Pre-compute base gaussian kernel (3-sigma truncation)
         radius = int(3 * sigma)
         ks = 2 * radius + 1
         y_grid, x_grid = np.ogrid[-radius:radius + 1, -radius:radius + 1]
@@ -100,7 +60,6 @@ def create_mask_from_result(result, h: int, w: int, class_map: dict,
             peak *= conf
 
         if mode == "gaussian":
-            # Clip to image boundary
             x_start, x_end = cx - radius, cx + radius + 1
             y_start, y_end = cy - radius, cy + radius + 1
 
@@ -129,7 +88,7 @@ def create_mask_from_result(result, h: int, w: int, class_map: dict,
 
 
 def process_split(image_dir: Path, model, class_map: dict, args) -> int:
-    """Process one data split (imagesTr or imagesTs)"""
+    """Process imagesTr or imagesTs."""
     if not image_dir.exists():
         print(f"[SKIP] {image_dir} does not exist")
         return 0
@@ -142,7 +101,6 @@ def process_split(image_dir: Path, model, class_map: dict, args) -> int:
     print(f"[INFO] Processing {len(img_files)} images in {image_dir.name} ...")
 
     count = 0
-    # Stream + batch inference: memory-friendly and efficient
     results_gen = model.predict(
         [str(p) for p in img_files],
         conf=args.conf,
@@ -174,7 +132,7 @@ def process_split(image_dir: Path, model, class_map: dict, args) -> int:
 
 
 def update_dataset_json(dataset_path: Path, channel_name: str = "YOLO_Gaussian_Class_Mask"):
-    """Update channel name in dataset.json"""
+    """Set channel 1 name in dataset.json."""
     json_path = dataset_path / "dataset.json"
     if not json_path.exists():
         print(f"[WARN] {json_path} not found, skipping metadata update")

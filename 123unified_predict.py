@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Minimal nnUNet prediction pipeline (single-channel version without YOLO).
-Paths can be changed inside the file; no command-line arguments are required.
+nnUNet single-channel prediction pipeline.
+Paths are set inside the file; no command-line arguments are required.
 """
 
 import cv2, subprocess, shutil, json, os
@@ -10,7 +10,6 @@ from pathlib import Path
 import numpy as np
 from imageio.v2 import imread
 
-# Custom Imports for bypassing multiprocessing
 import torch
 from nnunetv2.inference.predict_from_raw_data import nnUNetPredictor
 from nnunetv2.inference import data_iterators
@@ -18,7 +17,7 @@ from nnunetv2.utilities.label_handling.label_handling import convert_labelmap_to
 from typing import List, Union
 from nnunetv2.utilities.plans_handling.plans_handler import PlansManager, ConfigurationManager
 
-# Define synchronous iterator to bypass multiprocessing issues
+# Synchronous preprocessing iterator (avoids multiprocessing issues)
 def preprocessing_iterator_fromfiles_synchronous(list_of_lists: List[List[str]],
                                      list_of_segs_from_prev_stage_files: Union[None, List[str]],
                                      output_filenames_truncated: Union[None, List[str]],
@@ -55,14 +54,13 @@ def preprocessing_iterator_fromfiles_synchronous(list_of_lists: List[List[str]],
             [i.pin_memory() for i in item.values() if isinstance(i, torch.Tensor)]
         yield item
 
-# Apply monkey patch
 data_iterators.preprocessing_iterator_fromfiles = preprocessing_iterator_fromfiles_synchronous
 
 # ========== 1. User-editable section ==========
-INPUT_DIR   = Path('/home/chen/seg6/predict_no_label/experiment/in/experiment')  # original images
-OUTPUT_DIR  = Path('/home/chen/seg6/predict_no_label/experiment/in/2')      # nnUNet prediction results
-BORDER_DIR  = Path('/home/chen/seg6/predict_no_label/experiment/in/2')   # contour overlay images
-JSON_DIR    = Path('/home/chen/seg6/predict_no_label/experiment/in/2')                 # JSON annotation output directory
+INPUT_DIR   = Path('/path/to/test_images')
+OUTPUT_DIR  = Path('/path/to/predictions')
+BORDER_DIR  = Path('/path/to/predictions')
+JSON_DIR    = Path('/path/to/predictions')
 # nnUNet parameters
 DATASET_ID  = 123
 CONFIG      = '2d'
@@ -78,7 +76,7 @@ def find_imgs(p):
     return sorted([i for i in Path(p).iterdir()
                    if i.suffix.lower() in {'.png','.jpg','.jpeg','.bmp','.tif','.tiff'}])
 
-# ---------- Replace these two functions ----------
+# ---------- Input utilities ----------
 def to1ch_uint8(img):
     """Ensure output is single-channel uint8."""
     if img is None:
@@ -94,11 +92,10 @@ def prep_input(in_dir, tmp_dir):
     
     name_map = {}
     for idx, f in enumerate(find_imgs(in_dir)):
-        # Read original
-        img_original = cv2.imread(str(f), cv2.IMREAD_UNCHANGED)
+            img_original = cv2.imread(str(f), cv2.IMREAD_UNCHANGED)
         if img_original is None:
             try:
-                img_original = imread(str(f))  # compatible with .tif and other special formats
+                img_original = imread(str(f))
             except:
                 pass
                 
@@ -116,18 +113,15 @@ def prep_input(in_dir, tmp_dir):
     return tmp_dir, name_map
 
 def predict(tmp_dir, out_dir, model_folder):
-    """
-    Run nnUNet prediction (using Python API, single-threaded preprocessing).
-    """
+    """Run nnUNet prediction."""
     print(f"Predicting using model in: {model_folder}")
     
     device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
-    # Threading settings moved to main/global to avoid RuntimeError on multiple calls
 
     predictor = nnUNetPredictor(
         tile_step_size=0.5,
         use_gaussian=True,
-        use_mirroring=False, # Disable TTA
+        use_mirroring=False,
         perform_everything_on_device=True,
         device=device,
         verbose=False,
@@ -170,17 +164,14 @@ def create_labelme_json(original_img_path, mask, output_dir):
     """Generate a LabelMe-format JSON file from the predicted mask."""
     output_dir.mkdir(exist_ok=True, parents=True)
     
-    # Read original image to obtain size information
     img = cv2.imread(str(original_img_path))
     if img is None:
         try:
-            # Compatible with .tif and other special formats
             img = imread(str(original_img_path))
             if len(img.shape) == 2:
                 img = cv2.cvtColor(img, cv2.COLOR_GRAY2BGR)
             elif len(img.shape) == 3 and img.shape[2] == 4:
                 img = cv2.cvtColor(img, cv2.COLOR_RGBA2BGR)
-            # imageio reads color as RGB; convert to BGR for compatibility with subsequent processing
             elif len(img.shape) == 3 and img.shape[2] == 3:
                 img = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
         except Exception as e:
@@ -191,54 +182,41 @@ def create_labelme_json(original_img_path, mask, output_dir):
         print(f"Unable to read original image: {original_img_path}")
         return False
     
-    # Convert image to RGB (OpenCV uses BGR)
     img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
     
-    # Encode image as PNG byte stream
     success, encoded_img = cv2.imencode('.png', img_rgb)
     if not success:
         print(f"Image encoding failed: {original_img_path}")
         return False
     
-    # Convert byte stream to base64 string
     import base64
     imageData = base64.b64encode(encoded_img).decode('utf-8')
     
     height, width = img.shape[:2]
     
-    # Get original image filename (without path)
     original_name = original_img_path.stem
     
-    # Construct JSON file path
     json_path = output_dir / f"{original_name}.json"
     
-    # Initialize shapes list
     shapes = []
     
-    # Iterate over each class (skip background 0)
     for cls in np.unique(mask):
         if cls == 0:
             continue
             
-        # Get class label
         label = CLASS_LABELS.get(cls, f"class_{cls}")
         
-        # Binarize mask
         bin_mask = ((mask == cls) * 255).astype(np.uint8)
         
-    # Find contours
         contours, _ = cv2.findContours(bin_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
         
-        # Create a shape for each contour
         for contour in contours:
-            # Convert contour points to list format
             points = []
             for point in contour:
                 x, y = point[0]
                 points.append([float(x), float(y)])
             
-            # If enough points, add to shapes
-            if len(points) >= 3:  # a polygon needs at least 3 points
+            if len(points) >= 3:
                 shape = {
                     "label": label,
                     "points": points,
@@ -250,18 +228,16 @@ def create_labelme_json(original_img_path, mask, output_dir):
                 }
                 shapes.append(shape)
     
-    # Construct LabelMe-format JSON data
     labelme_data = {
         "version": "5.5.0",
         "flags": {},
         "shapes": shapes,
         "imagePath": original_img_path.name,
-        "imageData": imageData,  # embedded image data
+        "imageData": imageData,
         "imageHeight": height,
         "imageWidth": width
     }
     
-    # Write JSON file
     with open(json_path, 'w', encoding='utf-8') as f:
         json.dump(labelme_data, f, indent=2, ensure_ascii=False)
     
@@ -269,10 +245,9 @@ def create_labelme_json(original_img_path, mask, output_dir):
     return True
 
 def generate_json_annotations(input_dir, output_dir, json_output_dir, name_map=None):
-    """Generate JSON annotation files in batch; prefer the mapping recorded during preprocessing."""
+    """Generate LabelMe JSON annotations in batch."""
     json_output_dir.mkdir(exist_ok=True, parents=True)
     
-    # Get all prediction files
     mask_files = [f for f in sorted(output_dir.glob('*.png')) if not f.stem.endswith('_contour')]
     
     if not mask_files:
@@ -288,13 +263,11 @@ def generate_json_annotations(input_dir, output_dir, json_output_dir, name_map=N
         if name.endswith('_contour'):
             continue
 
-        # Prefer mapping from preprocessing stage to avoid guessing
         if name_map and name in name_map:
             original_img_path = name_map[name]
             debug_files = [original_img_path]
         else:
-            original_files = []
-            original_files.extend(list(input_dir.glob(f"{name}.*")))
+            original_files = list(input_dir.glob(f"{name}.*"))
             original_files.extend(list(input_dir.glob(f"{name}_0000.*")))
 
             if name.startswith('case'):
@@ -318,10 +291,8 @@ def generate_json_annotations(input_dir, output_dir, json_output_dir, name_map=N
 
         print(f"Debug: found {len(debug_files)} possible original images for {mask_file.name}: {[f.name for f in debug_files]}")
         
-        # Read mask
         mask = imread(mask_file).astype(np.uint8)
         
-        # Generate JSON file
         if create_labelme_json(original_img_path, mask, json_output_dir):
             success_count += 1
     
@@ -329,7 +300,7 @@ def generate_json_annotations(input_dir, output_dir, json_output_dir, name_map=N
 
 def main():
     # Find dataset directory
-    nnunet_results = Path('/home/chen/seg6/U-Mamba/data/nnUNet_results')
+    nnunet_results = Path('/path/to/U-Mamba/data/nnUNet_results')
     dataset_dirs = list(nnunet_results.glob(f'Dataset{DATASET_ID}_*'))
     if not dataset_dirs:
         print(f"Dataset{DATASET_ID} not found in {nnunet_results}")
@@ -339,11 +310,8 @@ def main():
     
     tmp = INPUT_DIR.parent/'temp_nnUNet'
     try:
-        # Preprocess input images
         tmp, name_map = prep_input(INPUT_DIR, tmp)
         
-        # Iterate over all trainers
-        # Directory structure: DatasetXXX/TrainerName__Plans__Config/...
         trainers_found = []
         for trainer_dir in sorted(dataset_dir.iterdir()):
             if not trainer_dir.is_dir():
@@ -351,27 +319,21 @@ def main():
             if 'nnUNetTrainer' not in trainer_dir.name:
                 continue
             
-            # Check whether checkpoint exists
             ckpt_path = trainer_dir / f'fold_{FOLD}' / CHECKPOINT
             if not ckpt_path.exists():
                 print(f"Skipping {trainer_dir.name}: {CHECKPOINT} not found")
                 continue
                 
-            # Parse trainer name
-            # Folder name is usually: TrainerName__PlansName__Configuration
-            # Compatibility handling: take the first part as TrainerName
             parts = trainer_dir.name.split('__')
             trainer_name = parts[0]
             
             print(f"\n======== Starting Trainer: {trainer_name} ========")
             trainers_found.append(trainer_name)
-            
-            # Set output directory for this trainer
+
             current_out = OUTPUT_DIR / trainer_name
             current_border = BORDER_DIR / trainer_name
             current_json = JSON_DIR / trainer_name
             
-            # Predict
             try:
                 predict(tmp, current_out, trainer_dir)
                 draw_contour(tmp, current_out, current_border)
@@ -383,11 +345,11 @@ def main():
             print("No trainer directories with a valid checkpoint found")
 
     finally:
-        shutil.rmtree(tmp, ignore_errors=True)      # delete temporary directory again
+        shutil.rmtree(tmp, ignore_errors=True)
     print('All done!')
 
 if __name__ == '__main__':
-    # Initialize threading early to avoid runtime errors during repeated inference
+    # Set threading limits early to avoid runtime errors during repeated inference
     try:
         if torch.cuda.is_available():
             torch.set_num_threads(1)

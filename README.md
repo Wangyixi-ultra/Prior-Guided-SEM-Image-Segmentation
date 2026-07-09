@@ -1,31 +1,33 @@
-# Prior-Guided SEM Image Segmentation and MQS ranking
+# Prior-Guided SEM Image Segmentation and MQS Ranking
 
-This repository contains the core implementation code for the perovskite SEM image segmentation and MQS ranking experiments.
+Code for perovskite SEM image segmentation and morphology-quality-score (MQS) ranking.
+
+## Pipeline
+
+1. Build the nnUNet dataset.
+2. Run YOLO detection and add the semantic prior channel.
+3. Train the U-Mamba segmentation model with the prior channel.
+4. Extract morphology features from segmented images.
+5. Train and apply the Spearman-4 MQS model.
 
 ## Repository Structure
 
-- `123combined_processing.py`: Data augmentation pipeline (14x augmentation: 1 original + 13 augmented variants) for SEM images, YOLO channels, and masks.
-- `123compare_all_trainers_test.py`: Test-set evaluation and comparison across all nnUNet trainers on Dataset123_Perovskite.
-- `123convert2nnunet.py`: Convert perovskite SEM grayscale images and 8-bit grayscale masks into nnUNet v2 standard format, with train/test split and visualization overlays.
-- `123unified_predict.py`: Minimal nnUNet prediction pipeline for single-channel SEM images, producing segmentation masks, border overlays, and LabelMe-format JSON annotations.
-- `trainers/nnUNetTrainerUMambaBotActiveContourDualChannelSemBoost.py`: Custom nnUNet trainer integrating U-Mamba, active contour loss, dual-channel input, and semantic boost with a YOLO-based semantic adapter.
-- `add_yolo_info_features_v2.py`: Generate YOLO auxiliary channels (Channel 1) for nnUNet dual-channel input, supporting YOLOv8/YOLO11 detection models with Gaussian blob and confidence weighting.
-- `analyze_perovskite.py`: Extract perovskite thin-film morphology descriptors (ABX3 grain size, PbI2 coverage, spatial uniformity, etc.) from SEM images and LabelMe JSON annotations.
-- `update_train_features.py`: Merge the latest SEM morphology features into the training data file.
-- `mqs_spearman4.py`: Train and validate a Spearman-4 Morphology Quality Score (MQS) model that links SEM descriptors to device PCE.
-- `analyze_perovskite_sem_test_spearman4.py`: Extract SEM features from independent test sets and score them with the trained Spearman-4 MQS model.
-- `evaluate_spearman4_test.py`: Evaluate the generalisation performance of Spearman-4 MQS against measured PCE on independent test datasets.
-
-## Dataset
-
-The AddTrain subset of the SEM image dataset used in this work is available on Zenodo:
-
-- **Zenodo Record**: https://doi.org/10.5281/zenodo.21263625
-- **DOI**: `10.5281/zenodo.21263625`
+| File | Purpose |
+|------|---------|
+| `123convert2nnunet.py` | Convert raw SEM images and masks into nnUNet v2 format. |
+| `add_yolo_info_features_v2.py` | Run a YOLO detector and write a Gaussian-blob prior channel. |
+| `trainers/nnUNetTrainerUMambaBotActiveContourDualChannelSemBoost.py` | Custom nnUNet trainer: U-Mamba + active contour + dual-channel input + semantic adapter. |
+| `123combined_processing.py` | Offline training-set augmentation (1 original + 13 variants). |
+| `123unified_predict.py` | Run inference on new SEM images and export masks / LabelMe JSON. |
+| `analyze_perovskite.py` | Extract morphology descriptors from segmented training images. |
+| `update_train_features.py` | Merge newly extracted features into the training spreadsheet. |
+| `mqs_spearman4.py` | Train and validate the Spearman-4 MQS model. |
+| `analyze_perovskite_sem_test_spearman4.py` | Extract features and score independent test images. |
+| `evaluate_spearman4_test.py` | Compare MQS scores with measured PCE on a test set. |
 
 ## Requirements
 
-The code was developed and tested in the `umamba_pero` conda environment. Key dependencies include:
+The code was tested in a conda environment with:
 
 | Package | Version |
 |---------|---------|
@@ -53,37 +55,85 @@ The code was developed and tested in the `umamba_pero` conda environment. Key de
 | nibabel | 5.3.2 |
 | tqdm | 4.65.2 |
 
-A complete list of all ~255 packages in the `umamba_pero` environment is provided in [`umamba_pero_packages.txt`](umamba_pero_packages.txt).
+A full package list is in [`umamba_pero_packages.txt`](umamba_pero_packages.txt).
 
 ## Usage
 
-1. Prepare the dataset with `123convert2nnunet.py`.
-2. Apply augmentation with `123combined_processing.py` if needed.
-3. Train using the custom trainer `nnUNetTrainerUMambaBotActiveContourDualChannelSemBoost`.
-4. Evaluate and compare trainers with `123compare_all_trainers_test.py`.
-5. Run inference with `123unified_predict.py`.
+### 1. Build the nnUNet dataset
 
-### Spearman-4 MQS pipeline (morphology-to-PCE scoring)
+Edit the paths in `123convert2nnunet.py`, then run:
 
-1. Extract training-set morphology features:
-   ```bash
-   python -B analyze_perovskite.py
-   ```
-2. Update the training data with the newly extracted features:
-   ```bash
-   python -B update_train_features.py
-   ```
-3. Train and validate the Spearman-4 MQS model:
-   ```bash
-   python -B mqs_spearman4.py
-   ```
-4. Extract features and score an independent test set:
-   ```bash
-   python -B analyze_perovskite_sem_test_spearman4.py [dataset_name]
-   ```
-5. Evaluate MQS against measured PCE:
-   ```bash
-   python -B evaluate_spearman4_test.py [dataset_name]
-   ```
+```bash
+python 123convert2nnunet.py
+```
 
+Input: raw grayscale SEM images and 8-bit grayscale masks.  
+Output: `Dataset123_Perovskite` in the nnUNet raw directory.
 
+### 2. Add the YOLO prior channel
+
+Use a trained YOLO detection model for PbI2 / ABO3 grains to generate the second input channel:
+
+```bash
+python add_yolo_info_features_v2.py \
+    --weights /path/to/yolo/weights/best.pt \
+    --dataset /path/to/U-Mamba/data/nnUNet_raw/Dataset123_Perovskite
+```
+
+### 3. Train the U-Mamba segmentation model
+
+Use the custom trainer:
+
+```bash
+nnUNetv2_train Dataset123_Perovskite 2d 0 \
+    -tr nnUNetTrainerUMambaBotActiveContourDualChannelSemBoost
+```
+
+Optional: run `123combined_processing.py` before training to augment the training set.
+
+### 4. Run inference
+
+```bash
+python 123unified_predict.py
+```
+
+Edit the input/output paths inside the script first.
+
+### 5. Extract morphology features
+
+For training images:
+
+```bash
+python -B analyze_perovskite.py
+```
+
+Then merge the new features into the training spreadsheet:
+
+```bash
+python -B update_train_features.py
+```
+
+### 6. Train the Spearman-4 MQS model
+
+```bash
+python -B mqs_spearman4.py
+```
+
+### 7. Score test images
+
+```bash
+python -B analyze_perovskite_sem_test_spearman4.py dataset1
+```
+
+### 8. Evaluate MQS against measured PCE
+
+```bash
+python -B evaluate_spearman4_test.py dataset1
+```
+
+## Data
+
+The AddTrain SEM image subset used in this work is available on Zenodo:
+
+- **Record:** https://doi.org/10.5281/zenodo.21263625
+- **DOI:** `10.5281/zenodo.21263625`

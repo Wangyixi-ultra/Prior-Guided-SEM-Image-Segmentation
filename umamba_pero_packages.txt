@@ -1,4 +1,4 @@
-# packages in environment at /home/chen/anaconda3/envs/umamba_pero:
+# packages in environment at /path/to/conda/envs/umamba_pero:
 #
 # Name                    Version                   Build  Channel
 _libgcc_mutex             0.1                        main  

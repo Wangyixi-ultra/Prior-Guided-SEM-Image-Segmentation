@@ -1,7 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-Batch analysis script for perovskite thin-film SEM images (lightweight version).
-Outputs only 9 core parameters, ordered ABX3 -> PbI2.
+Batch extraction of perovskite thin-film SEM morphology descriptors.
 """
 import os
 import re
@@ -26,17 +25,17 @@ plt.rcParams["mathtext.fontset"] = "stix"
 # =============================================================================
 # 1. Parameter configuration
 # =============================================================================
-IMAGE_DIR = "D:/article_sem/image"
-JSON_DIR = "D:/article_sem/image"
-EXCEL_PATH = "D:/article_sem/article_data3.30.xlsx"
-OUTPUT_DIR = "D:/article_sem/output"
+IMAGE_DIR = "D:/your_project/images"
+JSON_DIR = "D:/your_project/images"
+EXCEL_PATH = "D:/your_project/image_metadata.xlsx"
+OUTPUT_DIR = "D:/your_project/output"
 VIS_DIR = os.path.join(OUTPUT_DIR, "vis")
 SAVE_VISUALIZATION = True
 
 SUPPORTED_IMG_EXTENSIONS = ['.jpg', '.jpeg', '.png', '.tif', '.tiff']
 MIN_GRAIN_AREA_PIXEL = 20
 
-# Distance threshold (pixels) for external PbI2 judgement
+# Distance threshold for external PbI2 judgement (pixels)
 GRAIN_BOUNDARY_BUFFER_PIXEL = 5
 
 LOG_FILE_PATH = os.path.join(OUTPUT_DIR, "processing_log.txt")
@@ -101,9 +100,6 @@ def robust_read_excel(path):
     return df
 
 def get_image_num(filename):
-    # Supports two naming formats:
-    #   - "1-1.jpg", "60-1.png"  -> returns "1-1", "60-1"
-    #   - "60.png", "61.jpg"     -> returns "60", "61"
     match = re.search(r'^(\d+(?:-\d+)?)', os.path.basename(filename))
     if match:
         return match.group(1)
@@ -264,13 +260,10 @@ def analyze_image(img_path, json_path, scale_info):
         len(pbi2_grains) / len(abx3_grains) if abx3_grains else 0
     )
 
-    # 5. PbI2_ABX3_associated_fraction (Grain-Boundary-Associated PbI2 Fraction)
-    # A(PbI2 grains with GRAIN_BOUNDARY_BUFFER_PIXEL < dist <= 50 nm and overlap < 5%) / A(total PbI2)
-    # Note: 5 px excludes annotation noise at mask edges; 50 nm is the physical upper limit for grain-boundary association.
+    # 5. PbI2_ABX3_associated_fraction
     PbI2_ABX3_associated_fraction = 0
     if pbi2_grains and num_abx3 > 0:
         dist_to_abx3_pixel = distance_transform_edt(abx3_mask == 0)
-        # Pixel distance corresponding to 50 nm (um_per_pixel is in um/px)
         d_gb_px = 0.05 / um_per_pixel
         for pbi2_grain in pbi2_grains:
             grain_coords = pbi2_grain.coords
@@ -289,7 +282,6 @@ def analyze_image(img_path, json_path, scale_info):
         pbi2_grains, gray_image.shape
     )
 
-    # 6.5 PbI2 particle statistics (count and mean area)
     if pbi2_grains:
         summary_results['PbI2_particle_count'] = len(pbi2_grains)
         summary_results['PbI2_mean_particle_area_um2'] = float(
@@ -299,7 +291,6 @@ def analyze_image(img_path, json_path, scale_info):
         summary_results['PbI2_particle_count'] = 0
         summary_results['PbI2_mean_particle_area_um2'] = 0
 
-    # 7. PbI2_large_particle_area_um2 is defined as 1/4 of ABX3_grain_size_mean_actual_area_um2
     summary_results['PbI2_large_particle_area_um2'] = (
         summary_results.get('ABX3_grain_size_mean_actual_area_um2', 0.0) / 4.0
     )
@@ -382,12 +373,12 @@ def main():
     if all_summary_results:
         summary_df = pd.DataFrame(all_summary_results)
         summary_df = summary_df.sort_values(by='num', key=lambda col: col.map(natural_sort_key)).reset_index(drop=True)
-        summary_output_path = os.path.join(OUTPUT_DIR, 'sem_morphology_summary.xlsx')
+        summary_output_path = os.path.join(OUTPUT_DIR, 'image_features.xlsx')
         try:
             summary_df.to_excel(summary_output_path, index=False, engine='openpyxl')
             logging.info(f"Image-level summary saved to: {summary_output_path}")
         except PermissionError:
-            logging.error(f"Failed to save file: {summary_output_path}. Please check if the file is open in another program (e.g., Excel).")
+            logging.error(f"Failed to save file: {summary_output_path}.")
         except Exception as e:
             logging.error(f"Unknown error while saving image-level summary: {e}")
 
