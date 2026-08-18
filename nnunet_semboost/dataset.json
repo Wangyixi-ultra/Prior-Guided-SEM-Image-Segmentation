@@ -1,0 +1,13 @@
+{
+    "channel_names": {
+        "0": "SEM",
+        "1": "YOLO_Gaussian_Class_Mask"
+    },
+    "labels": {
+        "background": 0,
+        "PbI2": 1,
+        "ABO3": 2
+    },
+    "numTraining": 1036,
+    "file_ending": ".png"
+}
