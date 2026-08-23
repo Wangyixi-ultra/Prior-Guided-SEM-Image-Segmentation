@@ -22,6 +22,10 @@ U-Mamba/data/
 *.h5
 *.onnx
 
+# Tracked model weights for this repository
+!nnunet_semboost/*.pth
+!yolo/*.pt
+
 # Logs
 *.log
 

@@ -1,6 +1,6 @@
-# Prior-Guided SEM Image Segmentation and MQS Ranking
+# Prior-Guided SEM Image Segmentation and MQI Ranking
 
-Code for perovskite SEM image segmentation and morphology-quality-score (MQS) ranking.
+Code for perovskite SEM image segmentation and morphology-quality-score (MQI) ranking.
 
 ## Pipeline
 
@@ -8,7 +8,7 @@ Code for perovskite SEM image segmentation and morphology-quality-score (MQS) ra
 2. Run YOLO detection and add the semantic prior channel.
 3. Train the U-Mamba segmentation model with the prior channel.
 4. Extract morphology features from segmented images.
-5. Train and apply the Spearman-4 MQS model.
+5. Train and apply the Spearman-4 MQI model.
 
 ## Repository Structure
 
@@ -21,9 +21,9 @@ Code for perovskite SEM image segmentation and morphology-quality-score (MQS) ra
 | `123unified_predict.py` | Run inference on new SEM images and export masks / LabelMe JSON. |
 | `analyze_perovskite.py` | Extract morphology descriptors from segmented training images. |
 | `update_train_features.py` | Merge newly extracted features into the training spreadsheet. |
-| `mqs_spearman4.py` | Train and validate the Spearman-4 MQS model. |
+| `mqs_spearman4.py` | Train and validate the Spearman-4 MQI model. |
 | `analyze_perovskite_sem_test_spearman4.py` | Extract features and score independent test images. |
-| `evaluate_spearman4_test.py` | Compare MQS scores with measured PCE on a test set. |
+| `evaluate_spearman4_test.py` | Compare MQI scores with measured PCE on a test set. |
 
 ## Requirements
 
@@ -113,7 +113,7 @@ Then merge the new features into the training spreadsheet:
 python -B update_train_features.py
 ```
 
-### 6. Train the Spearman-4 MQS model
+### 6. Train the Spearman-4 MQI model
 
 ```bash
 python -B mqs_spearman4.py
@@ -125,7 +125,7 @@ python -B mqs_spearman4.py
 python -B analyze_perovskite_sem_test_spearman4.py dataset1
 ```
 
-### 8. Evaluate MQS against measured PCE
+### 8. Evaluate MQI against measured PCE
 
 ```bash
 python -B evaluate_spearman4_test.py dataset1
